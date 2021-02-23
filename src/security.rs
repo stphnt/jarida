@@ -1,0 +1,277 @@
+use once_cell::sync::Lazy;
+use ring::{self, aead, digest, pbkdf2, rand};
+use std::num::NonZeroU32;
+
+static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA512;
+const PBKDF2_ITERATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(100_000) };
+const KEY_LEN: usize = digest::SHA256_OUTPUT_LEN;
+pub type Key = [u8; KEY_LEN];
+pub type SaltPart = [u8; 16];
+
+static SYSTEM_RNG: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
+
+/// An intentionally ambiguous error
+#[derive(Debug)]
+pub struct UnspecifiedError {}
+
+impl std::fmt::Display for UnspecifiedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Unspecified security error")
+    }
+}
+
+impl std::convert::From<ring::error::Unspecified> for UnspecifiedError {
+    fn from(_: ring::error::Unspecified) -> Self {
+        UnspecifiedError {}
+    }
+}
+
+impl std::error::Error for UnspecifiedError {}
+
+#[derive(Debug, Clone)]
+pub struct Uuid(u128);
+
+impl Uuid {
+    pub fn random() -> Result<Self, UnspecifiedError> {
+        use rand::SecureRandom as _;
+        let mut buf = [0u8; std::mem::size_of::<u128>()];
+        SYSTEM_RNG.fill(&mut buf)?;
+        Ok(Uuid(u128::from_le_bytes(buf)))
+    }
+}
+
+impl std::fmt::Display for Uuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:x}", self.0)
+    }
+}
+
+/// A source of Nonces (numbers that you only use once).
+#[derive(Debug, Clone)]
+pub struct Nonce(u128);
+
+impl Nonce {
+    /// Generate a new, random source for Nonces.
+    pub fn random() -> Result<Nonce, UnspecifiedError> {
+        use rand::SecureRandom as _;
+        let mut buf = [0u8; Self::len()];
+        SYSTEM_RNG.fill(&mut buf)?;
+        Ok(Nonce(u128::from_le_bytes(buf)))
+    }
+
+    /// Encoded the present nonce value as a little-endian array of bytes.
+    pub fn to_le_bytes(&self) -> [u8; Self::len()] {
+        self.0.to_le_bytes()
+    }
+
+    /// Decode a Nonce for a little-endian array of bytes.
+    pub fn from_le_bytes(bytes: [u8; Self::len()]) -> Self {
+        Nonce(u128::from_le_bytes(bytes))
+    }
+
+    /// The number of bytes needed to represent the Nonce.
+    pub const fn len() -> usize {
+        std::mem::size_of::<u128>()
+    }
+}
+
+impl aead::NonceSequence for Nonce {
+    fn advance(&mut self) -> Result<aead::Nonce, ring::error::Unspecified> {
+        use std::convert::TryInto as _;
+        let nonce = aead::Nonce::assume_unique_for_key(
+            (&self.to_le_bytes()[..12])
+                .try_into()
+                .map_err(|_| ring::error::Unspecified)?,
+        );
+        self.0 += 1;
+        Ok(nonce)
+    }
+}
+
+impl aead::NonceSequence for &mut Nonce {
+    fn advance(&mut self) -> Result<aead::Nonce, ring::error::Unspecified> {
+        (*self).advance()
+    }
+}
+
+/// Generate a random value that can be used when salting for encryption. The
+/// value should be associated with the database and constant. It does not need
+/// to be a secret, though it should be unique to the database.
+pub fn generate_salt_db_part() -> Result<SaltPart, UnspecifiedError> {
+    use rand::SecureRandom as _;
+    let mut salt = [0u8; 16];
+    SYSTEM_RNG.fill(&mut salt)?;
+    Ok(salt)
+}
+
+/// Derive a key suitable for encrypt based on the database's salt and the
+/// user's name and password.
+fn derive_key_from_credentials(
+    db_salt: &SaltPart,
+    username: &str,
+    password: &str,
+) -> [u8; KEY_LEN] {
+    // Generate a salt based on the database's unique salt and the user's name.
+    let mut salt = Vec::with_capacity(db_salt.len() + username.as_bytes().len());
+    salt.extend(db_salt);
+    salt.extend(username.as_bytes());
+
+    // Derive key suitable for encryption/decryption
+    let mut key = [0; KEY_LEN];
+    pbkdf2::derive(
+        PBKDF2_ALG,
+        PBKDF2_ITERATIONS,
+        &salt,
+        password.as_bytes(),
+        &mut key,
+    );
+    key
+}
+
+/// Get an UnboundKey suitable for encrypt/decryption
+fn unbound_key(key: &Key) -> Result<aead::UnboundKey, UnspecifiedError> {
+    aead::UnboundKey::new(&aead::AES_256_GCM, key).map_err(|_| UnspecifiedError {})
+}
+
+/// Encrypt the plaintext in place using the specified key. The plaintext is
+/// consumed during this process, even if it fails.
+fn seal_in_place(key: &Key, mut plaintext: Vec<u8>) -> Result<(Nonce, Vec<u8>), UnspecifiedError> {
+    use aead::BoundKey as _;
+    let nonce = Nonce::random()?;
+    let mut key = aead::SealingKey::new(unbound_key(key)?, nonce.clone());
+    key.seal_in_place_append_tag(aead::Aad::empty(), &mut plaintext)
+        .map_err(|_| UnspecifiedError {})?;
+    Ok((nonce, plaintext))
+}
+
+/// Decrypt the ciphertext with the given key and nonce in place. The
+/// ciphertext is consumed in this process, even if it fails.
+fn open_in_place(
+    key: &Key,
+    mut nonce: Nonce,
+    mut ciphertext: Vec<u8>,
+) -> Result<Vec<u8>, UnspecifiedError> {
+    use aead::BoundKey as _;
+    let mut key = aead::OpeningKey::new(unbound_key(key)?, &mut nonce);
+    let size = key
+        .open_in_place(aead::Aad::empty(), &mut ciphertext)
+        .map_err(|_| UnspecifiedError {})?
+        .len();
+    ciphertext.truncate(size);
+    Ok(ciphertext)
+}
+
+/// A type used to verify the username and password used to secure the database.
+#[derive(Debug)]
+pub struct CredentialGuard {
+    /// The database's unique salt
+    salt: SaltPart,
+    /// The key derived from the user's name and password.
+    credential_key: Key,
+}
+
+impl CredentialGuard {
+    /// Generate a new CredentialGuard from the database's unique salt and the user's name
+    /// and password.
+    pub fn new(salt: SaltPart, username: &str, password: &str) -> CredentialGuard {
+        let key = derive_key_from_credentials(&salt, username, password);
+        CredentialGuard {
+            salt,
+            credential_key: key,
+        }
+    }
+
+    /// Update the user's name and password
+    pub fn update_credentials(&mut self, username: &str, password: &str) {
+        self.credential_key = derive_key_from_credentials(&self.salt, username, password);
+    }
+
+    /// Try to decrypt the key using the current user's name and password. If
+    /// successful, this CredentialGuard is consumed and a DataGuard is
+    /// returned, which can be used to encrypt/decrypt data.
+    /// Upon failure, this guard is returned and the guard's credentials should
+    /// be updated before calling this function again.
+    pub fn try_decrypt_key(self, encrypted_key: Vec<u8>) -> Result<DataGuard, Self> {
+        // If we can decrypt the key, the credentials are valid.
+        use std::convert::TryInto as _;
+        let mut nonce_bytes = encrypted_key;
+        let data = nonce_bytes.split_off(Nonce::len());
+        let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
+        if let Ok(key) = open_in_place(&self.credential_key, nonce, data) {
+            // Replace the key derived from the user's credentials with the key
+            // we just decrypted. All further encryption should be done with
+            // this key.
+            Ok(DataGuard {
+                guard: self,
+                key: key.try_into().unwrap(),
+            })
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Generate a randome symmetric encryption key for securing data. The key
+    /// is encrypted using the user's name and password and, as such, can be
+    /// public.
+    pub fn generate_encrypted_key(&self) -> Result<Vec<u8>, UnspecifiedError> {
+        // Generate a random key to use for encrypted data and encrypt it using
+        // the current credentials.
+        use rand::SecureRandom as _;
+        let mut buf = vec![0u8; KEY_LEN];
+        SYSTEM_RNG.fill(&mut buf)?;
+        assert!(buf.len() == KEY_LEN);
+        let (nonce, mut encrypted_key) = seal_in_place(&self.credential_key, buf)?;
+        let mut key = Vec::new();
+        key.extend_from_slice(&nonce.to_le_bytes());
+        key.append(&mut encrypted_key);
+        Ok(key)
+    }
+}
+
+/// A type used to encrypt/decrypt the contents of a database. It can only be
+/// created from a CredentialGuard who's username and password have been verified.
+#[derive(Debug)]
+pub struct DataGuard {
+    guard: CredentialGuard,
+    key: Key,
+}
+
+impl DataGuard {
+    /// Encrypt the plaintext in place using the specified key. The plaintext is
+    /// consumed during this process, even if it fails.
+    pub fn seal_in_place(
+        &mut self,
+        plaintext: Vec<u8>,
+    ) -> Result<(Nonce, Vec<u8>), UnspecifiedError> {
+        seal_in_place(&self.key, plaintext)
+    }
+
+    /// Decrypt the ciphertext with the given key and nonce in place. The
+    /// ciphertext is consumed in this process, even if it fails.
+    pub fn open_in_place(
+        &mut self,
+        nonce: Nonce,
+        ciphertext: Vec<u8>,
+    ) -> Result<Vec<u8>, UnspecifiedError> {
+        open_in_place(&self.key, nonce, ciphertext)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn seal_and_open() {
+        let message = b"Hello, World";
+        let username = "username";
+        let password = "password";
+        let salt = generate_salt_db_part().unwrap();
+        let credential_key = derive_key_from_credentials(&salt, username, password);
+
+        let data = message.to_vec();
+        let (nonce, ciphertext) = seal_in_place(&credential_key, data).unwrap();
+        let extracted = open_in_place(&credential_key, nonce, ciphertext).unwrap();
+        assert_eq!(message, &*extracted);
+    }
+}
