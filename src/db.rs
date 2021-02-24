@@ -12,6 +12,7 @@ pub struct Ided<T> {
     pub data: T,
 }
 
+/// A record containing journal entry metadata
 #[derive(Debug)]
 pub struct Metadata {
     pub created: chrono::DateTime<chrono::Utc>,
@@ -20,6 +21,7 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    /// Create new metadata for journal entry by the specified user.
     pub fn new(username: &str) -> Self {
         let now = chrono::Utc::now();
         Metadata {
@@ -30,12 +32,15 @@ impl Metadata {
     }
 }
 
+/// A store of journal entries
 #[derive(Debug)]
 pub struct Store {
+    /// The database connection
     conn: Connection,
 }
 
 impl Store {
+    /// Open the journals stored at the specified path.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Store> {
         let path = path.as_ref();
         let conn =
@@ -49,7 +54,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS security (
 	id INTEGER PRIMARY KEY ASC,
 	salt BLOB NOT NULL,
-	pass_marker BLOB
+	key BLOB
 );
 
 CREATE TABLE IF NOT EXISTS entries (
@@ -63,27 +68,21 @@ CREATE TABLE IF NOT EXISTS entries (
         )
         .context("Could not initialize database")?;
 
-        let mut store = Store { conn };
-        store.init_security_if_missing()?;
-        Ok(store)
-    }
-
-    fn init_security_if_missing(&mut self) -> rusqlite::Result<()> {
+        // Make sure the database has a unique salt value
         let security_data_exists =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM security", NO_PARAMS, |row| {
-                    row.get::<usize, i64>(0)
-                })?
-                > 0;
+            conn.query_row("SELECT COUNT(*) FROM security", NO_PARAMS, |row| {
+                row.get::<usize, i64>(0)
+            })? > 0;
         if !security_data_exists {
-            self.conn.execute(
+            conn.execute(
                 "INSERT INTO security (salt) VALUES (?)",
                 params![&generate_salt_db_part().unwrap()[..],],
             )?;
         }
-        Ok(())
+        Ok(Store { conn })
     }
 
+    /// Get the database's unique salt (for use in encryption).
     pub fn get_salt(&self) -> rusqlite::Result<Vec<u8>> {
         self.conn
             .query_row("SELECT salt FROM security", NO_PARAMS, |row| {
@@ -91,25 +90,33 @@ CREATE TABLE IF NOT EXISTS entries (
             })
     }
 
+    /// Get the database's encryption key. This key is used to encrypt/decrypt
+    /// all data in the database. However, it is encrypted using the user's
+    /// name and password.
     pub fn get_key(&mut self) -> rusqlite::Result<Option<Vec<u8>>> {
         self.conn
-            .query_row("SELECT pass_marker FROM security", NO_PARAMS, |row| {
+            .query_row("SELECT key FROM security", NO_PARAMS, |row| {
                 row.get::<usize, Option<Vec<u8>>>(0)
             })
     }
 
-    pub fn update_key(&mut self, marker: &[u8]) -> rusqlite::Result<()> {
+    /// Update the database's encryption key. It must already be encrypted with
+    /// the user's name and password. Note that the key itself should _never_
+    /// change as then there will be no way to decrypt existing entries in the
+    /// database. It can be reencrypted with a new username and password, however.
+    pub fn update_key(&mut self, encrypted_key: &[u8]) -> rusqlite::Result<()> {
         let id: i64 = self
             .conn
             .query_row("SELECT id FROM security", NO_PARAMS, |row| row.get(0))?;
         self.conn
             .execute(
-                "UPDATE security SET pass_marker = ? WHERE id = ?",
-                params![marker, id],
+                "UPDATE security SET key = ? WHERE id = ?",
+                params![encrypted_key, id],
             )
             .map(|_| ())
     }
 
+    /// Use the specified guard to encrypt/decrypt the database.
     pub fn guard<'a>(
         &'a mut self,
         guard: &'a mut DataGuard,
@@ -123,13 +130,20 @@ CREATE TABLE IF NOT EXISTS entries (
     }
 }
 
+/// A database of journal entries protected by the encryption facilities of a
+/// DataGuard. This is the only way to read/write entries from/to the database.
 pub struct GuardedStore<'a> {
+    /// The underlying store.
     pub store: &'a mut Store,
+    /// The user's name.
     pub username: &'a str,
+    /// The guard used for encryption/decryption.
     guard: &'a mut DataGuard,
 }
 
 impl<'a> GuardedStore<'a> {
+    /// Insert a new entry into the database with the associated metadata.
+    /// Returns an ID for the new entry.
     pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<i64> {
         let entry = entry.into_bytes();
         let (nonce, entry) = self.guard.seal_in_place(entry)?;
@@ -147,24 +161,26 @@ impl<'a> GuardedStore<'a> {
         Ok(self.store.conn.last_insert_rowid())
     }
 
-    pub fn update(&mut self, meta: &Ided<Metadata>, entry: String) -> anyhow::Result<()> {
+    /// Update an existing entry.
+    pub fn update(
+        &mut self,
+        id: i64,
+        modified: chrono::DateTime<chrono::Utc>,
+        entry: String,
+    ) -> anyhow::Result<()> {
         let entry = entry.into_bytes();
         let (nonce, entry) = self.guard.seal_in_place(entry)?;
         self.store
             .conn
             .execute(
                 "UPDATE entries SET modified = ?, nonce = ?, data = ? WHERE id = ?",
-                params![
-                    meta.data.modified.to_rfc3339(),
-                    &nonce.to_le_bytes()[..],
-                    entry,
-                    meta.id
-                ],
+                params![modified.to_rfc3339(), &nonce.to_le_bytes()[..], entry, id],
             )
             .context("Could not update entry")?;
         Ok(())
     }
 
+    /// Get the ids of all the journal entries
     pub fn get_ids(&self) -> rusqlite::Result<Vec<i64>> {
         let mut stmt = self.store.conn.prepare("SELECT id FROM entries")?;
         let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
@@ -175,6 +191,7 @@ impl<'a> GuardedStore<'a> {
         Ok(ids)
     }
 
+    /// Get Metadata about the specified entries
     pub fn get_metadata(&self, ids: &[i64]) -> rusqlite::Result<Vec<Ided<Metadata>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
@@ -211,6 +228,7 @@ impl<'a> GuardedStore<'a> {
         Ok(data)
     }
 
+    /// Get the journal entries for the specified ids
     pub fn get_entries(&mut self, ids: &[i64]) -> rusqlite::Result<Vec<Ided<String>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(

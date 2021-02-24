@@ -118,8 +118,8 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
 pub fn edit_entry(cfg: &Config, mut db: &mut GuardedStore, id: i64) -> anyhow::Result<()> {
     use std::io::{Read, Write};
 
-    let (mut meta, mut entry) = get_meta_and_entry(&mut db, id)?;
-    meta.data.modified = chrono::Utc::now();
+    let mut entry = get_entry(&mut db, id)?;
+    let modified = chrono::Utc::now();
     {
         let temp = tempfile::NamedTempFile::new_in(
             cfg.temp_dir
@@ -145,7 +145,7 @@ pub fn edit_entry(cfg: &Config, mut db: &mut GuardedStore, id: i64) -> anyhow::R
             ))?;
     }
 
-    db.update(&meta, entry.data)
+    db.update(entry.id, modified, entry.data)
         .context("Could not save journal entry")?;
     Ok(())
 }
@@ -205,6 +205,21 @@ fn get_meta_and_entry(
         _ => anyhow::bail!("Multiple records found for {}", id),
     };
     Ok((metadata, entry))
+}
+
+fn get_entry(
+    db: &mut GuardedStore,
+    id: i64,
+) -> anyhow::Result<Ided<String>> {
+    let entry = db
+        .get_entries(&[id])
+        .context(format!("Could not read entry for {}", id))?;
+    let entry = match entry.len() {
+        1 => entry.into_iter().next().unwrap(),
+        0 => anyhow::bail!("No records for {}", id),
+        _ => anyhow::bail!("Multiple records found for {}", id),
+    };
+    Ok(entry)
 }
 
 fn print_meta_and_entry(meta: &Ided<Metadata>, entry: &str) {
