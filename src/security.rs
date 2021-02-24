@@ -2,11 +2,12 @@ use once_cell::sync::Lazy;
 use ring::{self, aead, digest, pbkdf2, rand};
 use std::num::NonZeroU32;
 
-static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA512;
-const PBKDF2_ITERATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(100_000) };
+/// The size of an encryption key, which must match the encryption algorithm
 const KEY_LEN: usize = digest::SHA256_OUTPUT_LEN;
+/// The encryption key type
 pub type Key = [u8; KEY_LEN];
-pub type SaltPart = [u8; 16];
+/// The database portion of a salt used for deriving keys from username and passwords.
+pub type DbSalt = [u8; 16];
 
 static SYSTEM_RNG: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 
@@ -95,32 +96,28 @@ impl aead::NonceSequence for &mut Nonce {
 }
 
 /// Generate a random value that can be used when salting for encryption. The
-/// value should be associated with the database and constant. It does not need
-/// to be a secret, though it should be unique to the database.
-pub fn generate_salt_db_part() -> Result<SaltPart, UnspecifiedError> {
+/// value should be associated with the database and be constant. It does not
+/// need to be a secret, though it should be unique to the database.
+pub fn generate_db_salt() -> Result<DbSalt, UnspecifiedError> {
     use rand::SecureRandom as _;
-    let mut salt = [0u8; 16];
+    let mut salt: DbSalt = [0u8; 16];
     SYSTEM_RNG.fill(&mut salt)?;
     Ok(salt)
 }
 
 /// Derive a key suitable for encrypt based on the database's salt and the
 /// user's name and password.
-fn derive_key_from_credentials(
-    db_salt: &SaltPart,
-    username: &str,
-    password: &str,
-) -> [u8; KEY_LEN] {
+fn derive_key_from_credentials(db_salt: &DbSalt, username: &str, password: &str) -> Key {
     // Generate a salt based on the database's unique salt and the user's name.
     let mut salt = Vec::with_capacity(db_salt.len() + username.as_bytes().len());
     salt.extend(db_salt);
     salt.extend(username.as_bytes());
 
     // Derive key suitable for encryption/decryption
-    let mut key = [0; KEY_LEN];
+    let mut key: Key = [0; KEY_LEN];
     pbkdf2::derive(
-        PBKDF2_ALG,
-        PBKDF2_ITERATIONS,
+        pbkdf2::PBKDF2_HMAC_SHA512,
+        NonZeroU32::new(100_000).unwrap(),
         &salt,
         password.as_bytes(),
         &mut key,
@@ -165,7 +162,7 @@ fn open_in_place(
 #[derive(Debug)]
 pub struct CredentialGuard {
     /// The database's unique salt
-    salt: SaltPart,
+    salt: DbSalt,
     /// The key derived from the user's name and password.
     credential_key: Key,
 }
@@ -173,7 +170,7 @@ pub struct CredentialGuard {
 impl CredentialGuard {
     /// Generate a new CredentialGuard from the database's unique salt and the user's name
     /// and password.
-    pub fn new(salt: SaltPart, username: &str, password: &str) -> CredentialGuard {
+    pub fn new(salt: DbSalt, username: &str, password: &str) -> CredentialGuard {
         let key = derive_key_from_credentials(&salt, username, password);
         CredentialGuard {
             salt,
@@ -266,7 +263,7 @@ mod test {
         let message = b"Hello, World";
         let username = "username";
         let password = "password";
-        let salt = generate_salt_db_part().unwrap();
+        let salt = generate_db_salt().unwrap();
         let credential_key = derive_key_from_credentials(&salt, username, password);
 
         let data = message.to_vec();

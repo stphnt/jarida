@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, NO_PARAMS};
 
 use std::path::Path;
 
-use crate::security::{generate_salt_db_part, DataGuard, Nonce};
+use crate::security::{generate_db_salt, DataGuard, Nonce};
 
 /// A record that has an ID
 #[derive(Debug)]
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS entries (
         if !security_data_exists {
             conn.execute(
                 "INSERT INTO security (salt) VALUES (?)",
-                params![&generate_salt_db_part().unwrap()[..],],
+                params![&generate_db_salt().unwrap()[..],],
             )?;
         }
         Ok(Store { conn })
