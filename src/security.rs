@@ -235,6 +235,65 @@ impl DataGuard {
     }
 }
 
+/// A type that can be encrypted
+pub trait Seal: Sized {
+    fn into_bytes(self) -> Vec<u8>;
+
+    fn seal(self, guard: &mut DataGuard) -> Result<Vec<u8>, UnspecifiedError> {
+        guard.seal_in_place(self.into_bytes())
+    }
+}
+
+/// A type that can be decrypted
+pub trait Open: Sized {
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError>;
+
+    fn open(ciphertext: Vec<u8>, guard: &mut DataGuard) -> Result<Self, UnspecifiedError> {
+        let plaintext = guard.open_in_place(ciphertext)?;
+        Open::from_bytes(plaintext)
+    }
+}
+
+impl Seal for Vec<u8> {
+    fn into_bytes(self) -> Vec<u8> {
+        self
+    }
+}
+
+impl Open for Vec<u8> {
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError> {
+        Ok(bytes)
+    }
+}
+
+impl Seal for String {
+    fn into_bytes(self) -> Vec<u8> {
+        String::into_bytes(self)
+    }
+}
+
+impl Open for String {
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError> {
+        Ok(String::from_utf8(bytes).unwrap())
+    }
+}
+
+impl Seal for chrono::DateTime<chrono::Utc> {
+    fn into_bytes(self) -> Vec<u8> {
+        self.to_rfc3339().into_bytes()
+    }
+}
+
+impl Open for chrono::DateTime<chrono::Utc> {
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError> {
+        Ok(
+            chrono::DateTime::parse_from_rfc3339(std::str::from_utf8(&bytes).unwrap())
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

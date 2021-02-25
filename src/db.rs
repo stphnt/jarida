@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, NO_PARAMS};
 
 use std::path::Path;
 
-use crate::security::{generate_db_salt, DataGuard};
+use crate::security::{generate_db_salt, DataGuard, Open, Seal};
 use crate::uuid::Uuid;
 
 /// A record that has an ID
@@ -148,16 +148,15 @@ impl<'a> GuardedStore<'a> {
     /// Insert a new entry into the database with the associated metadata.
     /// Returns an ID for the new entry.
     pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<Uuid> {
-        let entry = self.guard.seal_in_place(entry.into_bytes())?;
         let uuid = Uuid::random().unwrap();
         self.store.conn.execute(
             "INSERT INTO entries (uuid, created, modified, author, data) VALUES (?, ?, ?, ?, ?)",
             params![
 				uuid,
-                self.guard.seal_in_place(meta.created.to_rfc3339().into_bytes())?,
-                self.guard.seal_in_place(meta.modified.to_rfc3339().into_bytes())?,
-                self.guard.seal_in_place(meta.author.clone().into_bytes())?,
-                entry
+                meta.created.seal(self.guard)?,
+                meta.modified.seal(self.guard)?,
+                meta.author.clone().seal(self.guard)?,
+                entry.seal(self.guard)?,
             ],
         )
         .context("Could not insert entry")?;
@@ -171,18 +170,11 @@ impl<'a> GuardedStore<'a> {
         modified: chrono::DateTime<chrono::Utc>,
         entry: String,
     ) -> anyhow::Result<()> {
-        let entry = self.guard.seal_in_place(entry.into_bytes())?;
         self.store
             .conn
             .execute(
                 "UPDATE entries SET modified = ?, data = ? WHERE uuid = ?",
-                params![
-                    self.guard
-                        .seal_in_place(modified.to_rfc3339().into_bytes())
-                        .unwrap(),
-                    entry,
-                    uuid
-                ],
+                params![modified.seal(self.guard)?, entry.seal(self.guard)?, uuid],
             )
             .context("Could not update entry")?;
         Ok(())
@@ -214,26 +206,9 @@ impl<'a> GuardedStore<'a> {
             Ok(Ided {
                 uuid: row.get(0)?,
                 data: Metadata {
-                    created: {
-                        let datetime = guard.open_in_place(row.get(1)?).unwrap();
-                        chrono::DateTime::parse_from_rfc3339(
-                            std::str::from_utf8(&datetime).unwrap(),
-                        )
-                        .unwrap()
-                        .with_timezone(&chrono::Utc)
-                    },
-                    modified: {
-                        let datetime = guard.open_in_place(row.get(2)?).unwrap();
-                        chrono::DateTime::parse_from_rfc3339(
-                            std::str::from_utf8(&datetime).unwrap(),
-                        )
-                        .unwrap()
-                        .with_timezone(&chrono::Utc)
-                    },
-                    author: {
-                        let author = guard.open_in_place(row.get(3)?).unwrap();
-                        String::from_utf8(author).unwrap()
-                    },
+                    created: Open::open(row.get(1)?, guard).unwrap(),
+                    modified: Open::open(row.get(2)?, guard).unwrap(),
+                    author: Open::open(row.get(3)?, guard).unwrap(),
                 },
             })
         })?;
@@ -256,11 +231,9 @@ impl<'a> GuardedStore<'a> {
         )?;
         let guard = &mut self.guard;
         let rows = stmt.query_map(uuids, |row| {
-            let data: Vec<u8> = row.get(1)?;
-            let data = guard.open_in_place(data).unwrap();
             Ok(Ided {
                 uuid: row.get(0)?,
-                data: String::from_utf8(data).unwrap(),
+                data: Open::open(row.get(1)?, guard).unwrap(),
             })
         })?;
         let mut data = Vec::new();
