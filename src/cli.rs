@@ -26,7 +26,7 @@ impl Args {
     pub fn run(&self, cfg: &Config, mut db: &mut GuardedStore) -> anyhow::Result<()> {
         match self {
             Args::New => new_entry(&cfg, &mut db),
-            Args::List => print_entry_list(&db),
+            Args::List => print_entry_list(&mut db),
             Args::Show { id } => {
                 if let Some(id) = id {
                     print_entry(&mut db, *id)

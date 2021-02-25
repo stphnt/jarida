@@ -186,7 +186,7 @@ pub fn print_entry(mut db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
 }
 
 /// List identifying metadata for every entry in the database.
-pub fn print_entry_list(db: &GuardedStore) -> anyhow::Result<()> {
+pub fn print_entry_list(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read metadata ids")?;
     let metadata = db.get_metadata(&*ids).context("Could not read metadata")?;
     for meta in metadata {

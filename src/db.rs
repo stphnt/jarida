@@ -60,9 +60,9 @@ CREATE TABLE IF NOT EXISTS security (
 
 CREATE TABLE IF NOT EXISTS entries (
 	uuid TEXT UNIQUE NOT NULL,
-	created TEXT NOT NULL,
-	modified TEXT NOT NULL,
-	author TEXT NOT NULL,
+	created BLOB NOT NULL,
+	modified BLOB NOT NULL,
+	author BLOB NOT NULL,
 	data BLOB NOT NULL
 );
 
@@ -148,16 +148,15 @@ impl<'a> GuardedStore<'a> {
     /// Insert a new entry into the database with the associated metadata.
     /// Returns an ID for the new entry.
     pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<Uuid> {
-        let entry = entry.into_bytes();
+        let entry = self.guard.seal_in_place(entry.into_bytes())?;
         let uuid = Uuid::random().unwrap();
-        let entry = self.guard.seal_in_place(entry)?;
         self.store.conn.execute(
             "INSERT INTO entries (uuid, created, modified, author, data) VALUES (?, ?, ?, ?, ?)",
             params![
 				uuid,
-                meta.created,
-                meta.modified,
-                meta.author,
+                self.guard.seal_in_place(meta.created.to_rfc3339().into_bytes())?,
+                self.guard.seal_in_place(meta.modified.to_rfc3339().into_bytes())?,
+                self.guard.seal_in_place(meta.author.clone().into_bytes())?,
                 entry
             ],
         )
@@ -172,13 +171,18 @@ impl<'a> GuardedStore<'a> {
         modified: chrono::DateTime<chrono::Utc>,
         entry: String,
     ) -> anyhow::Result<()> {
-        let entry = entry.into_bytes();
-        let entry = self.guard.seal_in_place(entry)?;
+        let entry = self.guard.seal_in_place(entry.into_bytes())?;
         self.store
             .conn
             .execute(
                 "UPDATE entries SET modified = ?, data = ? WHERE uuid = ?",
-                params![modified, entry, uuid],
+                params![
+                    self.guard
+                        .seal_in_place(modified.to_rfc3339().into_bytes())
+                        .unwrap(),
+                    entry,
+                    uuid
+                ],
             )
             .context("Could not update entry")?;
         Ok(())
@@ -196,7 +200,7 @@ impl<'a> GuardedStore<'a> {
     }
 
     /// Get Metadata about the specified entries
-    pub fn get_metadata(&self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<Metadata>>> {
+    pub fn get_metadata(&mut self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<Metadata>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
             format!(
@@ -205,13 +209,31 @@ impl<'a> GuardedStore<'a> {
             )
             .as_str(),
         )?;
+        let guard = &mut self.guard;
         let rows = stmt.query_map(uuids, |row| {
             Ok(Ided {
                 uuid: row.get(0)?,
                 data: Metadata {
-                    created: row.get(1)?,
-                    modified: row.get(2)?,
-                    author: row.get(3)?,
+                    created: {
+                        let datetime = guard.open_in_place(row.get(1)?).unwrap();
+                        chrono::DateTime::parse_from_rfc3339(
+                            std::str::from_utf8(&datetime).unwrap(),
+                        )
+                        .unwrap()
+                        .with_timezone(&chrono::Utc)
+                    },
+                    modified: {
+                        let datetime = guard.open_in_place(row.get(2)?).unwrap();
+                        chrono::DateTime::parse_from_rfc3339(
+                            std::str::from_utf8(&datetime).unwrap(),
+                        )
+                        .unwrap()
+                        .with_timezone(&chrono::Utc)
+                    },
+                    author: {
+                        let author = guard.open_in_place(row.get(3)?).unwrap();
+                        String::from_utf8(author).unwrap()
+                    },
                 },
             })
         })?;
