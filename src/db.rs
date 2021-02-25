@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, NO_PARAMS};
 
 use std::path::Path;
 
-use crate::security::{generate_db_salt, DataGuard, Nonce};
+use crate::security::{generate_db_salt, DataGuard};
 use crate::uuid::Uuid;
 
 /// A record that has an ID
@@ -63,7 +63,6 @@ CREATE TABLE IF NOT EXISTS entries (
 	created TEXT NOT NULL,
 	modified TEXT NOT NULL,
 	author TEXT NOT NULL,
-	nonce BLOB NOT NULL,
 	data BLOB NOT NULL
 );
 
@@ -151,15 +150,14 @@ impl<'a> GuardedStore<'a> {
     pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<Uuid> {
         let entry = entry.into_bytes();
         let uuid = Uuid::random().unwrap();
-        let (nonce, entry) = self.guard.seal_in_place(entry)?;
+        let entry = self.guard.seal_in_place(entry)?;
         self.store.conn.execute(
-            "INSERT INTO entries (uuid, created, modified, author, nonce, data) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO entries (uuid, created, modified, author, data) VALUES (?, ?, ?, ?, ?)",
             params![
 				uuid,
                 meta.created,
                 meta.modified,
                 meta.author,
-                &nonce.to_le_bytes()[..],
                 entry
             ],
         )
@@ -175,17 +173,12 @@ impl<'a> GuardedStore<'a> {
         entry: String,
     ) -> anyhow::Result<()> {
         let entry = entry.into_bytes();
-        let (nonce, entry) = self.guard.seal_in_place(entry)?;
+        let entry = self.guard.seal_in_place(entry)?;
         self.store
             .conn
             .execute(
-                "UPDATE entries SET modified = ?, nonce = ?, data = ? WHERE uuid = ?",
-                params![
-                    modified,
-                    &nonce.to_le_bytes()[..],
-                    entry,
-                    uuid
-                ],
+                "UPDATE entries SET modified = ?, data = ? WHERE uuid = ?",
+                params![modified, entry, uuid],
             )
             .context("Could not update entry")?;
         Ok(())
@@ -208,7 +201,7 @@ impl<'a> GuardedStore<'a> {
         let mut stmt = self.store.conn.prepare(
             format!(
                 "SELECT uuid, created, modified, author FROM entries WHERE uuid IN ({})",
-				uuids.iter().map(|_| "?").join(", ")
+                uuids.iter().map(|_| "?").join(", ")
             )
             .as_str(),
         )?;
@@ -234,18 +227,15 @@ impl<'a> GuardedStore<'a> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
             format!(
-                "SELECT uuid, nonce, data FROM entries WHERE uuid IN ({})",
-				uuids.iter().map(|_| "?").join(", ")
+                "SELECT uuid, data FROM entries WHERE uuid IN ({})",
+                uuids.iter().map(|_| "?").join(", ")
             )
             .as_str(),
         )?;
         let guard = &mut self.guard;
         let rows = stmt.query_map(uuids, |row| {
-            use std::convert::TryInto as _;
-            let nonce_bytes: Vec<u8> = row.get(1)?;
-            let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
-            let data: Vec<u8> = row.get(2)?;
-            let data = guard.open_in_place(nonce, data).unwrap();
+            let data: Vec<u8> = row.get(1)?;
+            let data = guard.open_in_place(data).unwrap();
             Ok(Ided {
                 uuid: row.get(0)?,
                 data: String::from_utf8(data).unwrap(),

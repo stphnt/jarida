@@ -170,13 +170,13 @@ impl CredentialGuard {
     /// returned, which can be used to encrypt/decrypt data.
     /// Upon failure, this guard is returned and the guard's credentials should
     /// be updated before calling this function again.
-    pub fn try_decrypt_key(self, encrypted_key: Vec<u8>) -> Result<DataGuard, Self> {
+    pub fn try_decrypt_key(self, mut encrypted_key: Vec<u8>) -> Result<DataGuard, Self> {
         // If we can decrypt the key, the credentials are valid.
         use std::convert::TryInto as _;
-        let mut nonce_bytes = encrypted_key;
-        let data = nonce_bytes.split_off(Nonce::len());
+        // Split the encrypted data from the nonce at the end.
+        let nonce_bytes = encrypted_key.split_off(encrypted_key.len() - Nonce::len());
         let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
-        if let Ok(key) = open_in_place(&self.credential_key, nonce, data) {
+        if let Ok(key) = open_in_place(&self.credential_key, nonce, encrypted_key) {
             // Replace the key derived from the user's credentials with the key
             // we just decrypted. All further encryption should be done with
             // this key.
@@ -200,10 +200,9 @@ impl CredentialGuard {
         SYSTEM_RNG.fill(&mut buf)?;
         assert!(buf.len() == KEY_LEN);
         let (nonce, mut encrypted_key) = seal_in_place(&self.credential_key, buf)?;
-        let mut key = Vec::new();
-        key.extend_from_slice(&nonce.to_le_bytes());
-        key.append(&mut encrypted_key);
-        Ok(key)
+        // Append the nonce to the end
+        encrypted_key.extend_from_slice(&nonce.to_le_bytes());
+        Ok(encrypted_key)
     }
 }
 
@@ -218,20 +217,20 @@ pub struct DataGuard {
 impl DataGuard {
     /// Encrypt the plaintext in place using the specified key. The plaintext is
     /// consumed during this process, even if it fails.
-    pub fn seal_in_place(
-        &mut self,
-        plaintext: Vec<u8>,
-    ) -> Result<(Nonce, Vec<u8>), UnspecifiedError> {
-        seal_in_place(&self.key, plaintext)
+    pub fn seal_in_place(&mut self, plaintext: Vec<u8>) -> Result<Vec<u8>, UnspecifiedError> {
+        let (nonce, mut encrypted_data) = seal_in_place(&self.key, plaintext)?;
+        // Append the nonce to the end
+        encrypted_data.extend_from_slice(&nonce.to_le_bytes()[..]);
+        Ok(encrypted_data)
     }
 
     /// Decrypt the ciphertext with the given key and nonce in place. The
     /// ciphertext is consumed in this process, even if it fails.
-    pub fn open_in_place(
-        &mut self,
-        nonce: Nonce,
-        ciphertext: Vec<u8>,
-    ) -> Result<Vec<u8>, UnspecifiedError> {
+    pub fn open_in_place(&mut self, mut ciphertext: Vec<u8>) -> Result<Vec<u8>, UnspecifiedError> {
+        use std::convert::TryInto as _;
+        // Split the encrypted data from the nonce at the end.
+        let nonce_bytes = ciphertext.split_off(ciphertext.len() - Nonce::len());
+        let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
         open_in_place(&self.key, nonce, ciphertext)
     }
 }
