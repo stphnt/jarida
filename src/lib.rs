@@ -292,7 +292,7 @@ pub fn get_and_validate_credentials(
         .map(|user| user.clone())
         .ok_or(())
         .or_else(|_| prompt_username())?;
-    let mut password = cfg.password.as_ref().map(|pass| pass.clone());
+    let mut password = cfg.password.clone();
 
     if encrypted_key.is_empty() {
         // The database has no key, which means the user has never put anything
