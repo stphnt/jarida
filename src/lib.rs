@@ -169,7 +169,7 @@ pub fn edit_entry(cfg: &Config, mut db: &mut GuardedStore, id: Uuid) -> anyhow::
 pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read metadata ids")?;
     let metadata = db.get_metadata(&*ids).context("Could not read metadata")?;
-    let entries = db.get_entries(&*ids).context("Could not read entries")?;
+    let entries = db.get_content(&*ids).context("Could not read entries")?;
     assert_eq!(metadata.len(), entries.len());
     for (meta, entry) in metadata.iter().zip(entries) {
         print_meta_and_entry(meta, &entry.data);
@@ -216,7 +216,7 @@ fn get_meta_and_entry(
         _ => anyhow::bail!("Multiple records found for {}", uuid),
     };
     let entry = db
-        .get_entries(&[uuid])
+        .get_content(&[uuid])
         .context(format!("Could not read entry for {}", uuid))?;
     let entry = match entry.len() {
         1 => entry.into_iter().next().unwrap(),
@@ -229,7 +229,7 @@ fn get_meta_and_entry(
 /// Get the content of the specified entry in the database.
 fn get_entry(db: &mut GuardedStore, uuid: Uuid) -> anyhow::Result<Ided<String>> {
     let entry = db
-        .get_entries(&[uuid])
+        .get_content(&[uuid])
         .context(format!("Could not read entry for {}", uuid))?;
     let entry = match entry.len() {
         1 => entry.into_iter().next().unwrap(),

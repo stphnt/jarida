@@ -219,8 +219,8 @@ impl<'a> GuardedStore<'a> {
         Ok(data)
     }
 
-    /// Get the journal entries for the specified uuids
-    pub fn get_entries(&mut self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<String>>> {
+    /// Get the content of the journal entries with the specified uuids
+    pub fn get_content(&mut self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<String>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
             format!(
