@@ -4,11 +4,12 @@ use rusqlite::{params, Connection, NO_PARAMS};
 use std::path::Path;
 
 use crate::security::{generate_db_salt, DataGuard, Nonce};
+use crate::uuid::Uuid;
 
 /// A record that has an ID
 #[derive(Debug)]
 pub struct Ided<T> {
-    pub id: i64,
+    pub uuid: Uuid,
     pub data: T,
 }
 
@@ -58,13 +59,16 @@ CREATE TABLE IF NOT EXISTS security (
 );
 
 CREATE TABLE IF NOT EXISTS entries (
-	id INTEGER PRIMARY KEY ASC,
+	uuid TEXT UNIQUE NOT NULL,
 	created TEXT NOT NULL,
 	modified TEXT NOT NULL,
 	author TEXT NOT NULL,
 	nonce BLOB NOT NULL,
 	data BLOB NOT NULL
-);"#,
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS entry_uuids ON entries (uuid);
+"#,
         )
         .context("Could not initialize database")?;
 
@@ -144,27 +148,29 @@ pub struct GuardedStore<'a> {
 impl<'a> GuardedStore<'a> {
     /// Insert a new entry into the database with the associated metadata.
     /// Returns an ID for the new entry.
-    pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<i64> {
+    pub fn insert(&mut self, meta: &Metadata, entry: String) -> anyhow::Result<Uuid> {
         let entry = entry.into_bytes();
+        let uuid = Uuid::random().unwrap();
         let (nonce, entry) = self.guard.seal_in_place(entry)?;
         self.store.conn.execute(
-            "INSERT INTO entries (created, modified, author, nonce, data) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO entries (uuid, created, modified, author, nonce, data) VALUES (?, ?, ?, ?, ?, ?)",
             params![
-                meta.created.to_rfc3339(),
-                meta.modified.to_rfc3339(),
+				uuid,
+                meta.created,
+                meta.modified,
                 meta.author,
                 &nonce.to_le_bytes()[..],
                 entry
             ],
         )
         .context("Could not insert entry")?;
-        Ok(self.store.conn.last_insert_rowid())
+        Ok(uuid)
     }
 
     /// Update an existing entry.
     pub fn update(
         &mut self,
-        id: i64,
+        uuid: Uuid,
         modified: chrono::DateTime<chrono::Utc>,
         entry: String,
     ) -> anyhow::Result<()> {
@@ -173,50 +179,45 @@ impl<'a> GuardedStore<'a> {
         self.store
             .conn
             .execute(
-                "UPDATE entries SET modified = ?, nonce = ?, data = ? WHERE id = ?",
-                params![modified.to_rfc3339(), &nonce.to_le_bytes()[..], entry, id],
+                "UPDATE entries SET modified = ?, nonce = ?, data = ? WHERE uuid = ?",
+                params![
+                    modified,
+                    &nonce.to_le_bytes()[..],
+                    entry,
+                    uuid
+                ],
             )
             .context("Could not update entry")?;
         Ok(())
     }
 
-    /// Get the ids of all the journal entries
-    pub fn get_ids(&self) -> rusqlite::Result<Vec<i64>> {
-        let mut stmt = self.store.conn.prepare("SELECT id FROM entries")?;
+    /// Get the uuids of all the journal entries
+    pub fn get_uuids(&self) -> rusqlite::Result<Vec<Uuid>> {
+        let mut stmt = self.store.conn.prepare("SELECT uuid FROM entries")?;
         let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
-        let mut ids = Vec::new();
-        for id in rows {
-            ids.push(id?);
+        let mut uuids = Vec::new();
+        for uuid in rows {
+            uuids.push(uuid?);
         }
-        Ok(ids)
+        Ok(uuids)
     }
 
     /// Get Metadata about the specified entries
-    pub fn get_metadata(&self, ids: &[i64]) -> rusqlite::Result<Vec<Ided<Metadata>>> {
+    pub fn get_metadata(&self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<Metadata>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
             format!(
-                "SELECT id, created, modified, author FROM entries WHERE id IN ({})",
-                ids.iter().join(", ")
+                "SELECT uuid, created, modified, author FROM entries WHERE uuid IN ({})",
+				uuids.iter().map(|_| "?").join(", ")
             )
             .as_str(),
         )?;
-        let rows = stmt.query_map(NO_PARAMS, |row| {
+        let rows = stmt.query_map(uuids, |row| {
             Ok(Ided {
-                id: row.get(0)?,
+                uuid: row.get(0)?,
                 data: Metadata {
-                    created: {
-                        let date_string: String = row.get(1)?;
-                        chrono::DateTime::parse_from_rfc3339(date_string.as_str())
-                            .unwrap()
-                            .with_timezone(&chrono::Utc)
-                    },
-                    modified: {
-                        let date_string: String = row.get(2)?;
-                        chrono::DateTime::parse_from_rfc3339(date_string.as_str())
-                            .unwrap()
-                            .with_timezone(&chrono::Utc)
-                    },
+                    created: row.get(1)?,
+                    modified: row.get(2)?,
                     author: row.get(3)?,
                 },
             })
@@ -228,25 +229,25 @@ impl<'a> GuardedStore<'a> {
         Ok(data)
     }
 
-    /// Get the journal entries for the specified ids
-    pub fn get_entries(&mut self, ids: &[i64]) -> rusqlite::Result<Vec<Ided<String>>> {
+    /// Get the journal entries for the specified uuids
+    pub fn get_entries(&mut self, uuids: &[Uuid]) -> rusqlite::Result<Vec<Ided<String>>> {
         use itertools::Itertools as _; // for join on iterators
         let mut stmt = self.store.conn.prepare(
             format!(
-                "SELECT id, nonce, data FROM entries WHERE id IN ({})",
-                ids.iter().join(", ")
+                "SELECT uuid, nonce, data FROM entries WHERE uuid IN ({})",
+				uuids.iter().map(|_| "?").join(", ")
             )
             .as_str(),
         )?;
         let guard = &mut self.guard;
-        let rows = stmt.query_map(NO_PARAMS, |row| {
+        let rows = stmt.query_map(uuids, |row| {
             use std::convert::TryInto as _;
             let nonce_bytes: Vec<u8> = row.get(1)?;
             let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
             let data: Vec<u8> = row.get(2)?;
             let data = guard.open_in_place(nonce, data).unwrap();
             Ok(Ided {
-                id: row.get(0)?,
+                uuid: row.get(0)?,
                 data: String::from_utf8(data).unwrap(),
             })
         })?;

@@ -1,5 +1,6 @@
 use super::{
     edit_entry, new_entry, print_all_entries, print_entry, print_entry_list, Config, GuardedStore,
+    Uuid,
 };
 
 #[derive(Debug, structopt::StructOpt)]
@@ -12,12 +13,12 @@ pub enum Args {
     /// Show one or all journal entries
     Show {
         /// The ID of the entry to show
-        id: Option<i64>,
+        id: Option<Uuid>,
     },
     /// Edit an existing journal entry
     Edit {
         /// The ID of the entry to edit
-        id: i64,
+        id: Uuid,
     },
 }
 
