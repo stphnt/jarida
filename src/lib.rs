@@ -175,9 +175,10 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
 /// Print the metadata and content of every entry in the database.
 pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let entries = db
+    let mut entries = db
         .get_metadata_and_content(&*ids)
         .context("Could not read entries")?;
+    entries.sort_by_key(|entry| entry.data.metadata.created);
     for entry in entries {
         print_metadata_and_content(&entry);
         println!();
@@ -201,7 +202,8 @@ pub fn print_entry(db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
 /// List identifying metadata for every entry in the database.
 pub fn print_entry_list(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let metadata = db.get_metadata(&*ids).context("Could not read metadata")?;
+    let mut metadata = db.get_metadata(&*ids).context("Could not read metadata")?;
+    metadata.sort_by_key(|meta| meta.data.created);
     for meta in metadata {
         println!(
             "[{}] {}",
