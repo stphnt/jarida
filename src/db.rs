@@ -33,6 +33,12 @@ impl Metadata {
     }
 }
 
+/// A record containing the journal entry's metadata and content
+pub struct MetadataAndContent {
+    pub metadata: Metadata,
+    pub content: String,
+}
+
 /// A store of journal entries
 #[derive(Debug)]
 pub struct Store {
@@ -234,6 +240,40 @@ impl<'a> GuardedStore<'a> {
             Ok(Ided {
                 uuid: row.get(0)?,
                 data: Open::open(row.get(1)?, guard).unwrap(),
+            })
+        })?;
+        let mut data = Vec::new();
+        for row in rows {
+            data.push(row?);
+        }
+        Ok(data)
+    }
+
+    /// Get the metadata and content of the journal entries with the specified uuids
+    pub fn get_metadata_and_content(
+        &mut self,
+        uuids: &[Uuid],
+    ) -> rusqlite::Result<Vec<Ided<MetadataAndContent>>> {
+        use itertools::Itertools as _; // for join on iterators
+        let mut stmt = self.store.conn.prepare(
+            format!(
+                "SELECT uuid, created, modified, author, data FROM entries WHERE uuid IN ({})",
+                uuids.iter().map(|_| "?").join(", ")
+            )
+            .as_str(),
+        )?;
+        let guard = &mut self.guard;
+        let rows = stmt.query_map(uuids, |row| {
+            Ok(Ided {
+                uuid: row.get(0)?,
+                data: MetadataAndContent {
+                    metadata: Metadata {
+                        created: Open::open(row.get(1)?, guard).unwrap(),
+                        modified: Open::open(row.get(2)?, guard).unwrap(),
+                        author: Open::open(row.get(3)?, guard).unwrap(),
+                    },
+                    content: Open::open(row.get(4)?, guard).unwrap(),
+                },
             })
         })?;
         let mut data = Vec::new();
