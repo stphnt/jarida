@@ -268,12 +268,7 @@ pub fn get_and_validate_credentials(
 
     // Get and confirm the user's name and password
 
-    let mut username = cfg
-        .user
-        .as_ref()
-        .map(|user| user.clone())
-        .ok_or(())
-        .or_else(|_| prompt_username())?;
+    let mut username = cfg.user.clone().ok_or(()).or_else(|_| prompt_username())?;
     let mut password = cfg.password.clone();
 
     if encrypted_key.is_empty() {
