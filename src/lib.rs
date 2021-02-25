@@ -4,11 +4,13 @@ mod cli;
 mod config;
 mod db;
 mod security;
+mod uuid;
 
 pub use cli::*;
 pub use config::Config;
 pub use db::*;
 pub use security::{CredentialGuard, DataGuard};
+pub use uuid::Uuid;
 
 /// The formatting string for all date-time
 const DATETIME_FORMAT: &str = "%a %v %R";

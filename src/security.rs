@@ -9,7 +9,7 @@ pub type Key = [u8; KEY_LEN];
 /// The database portion of a salt used for deriving keys from username and passwords.
 pub type DbSalt = [u8; 16];
 
-static SYSTEM_RNG: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
+pub static SYSTEM_RNG: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 
 /// An intentionally ambiguous error
 #[derive(Debug)]
@@ -28,24 +28,6 @@ impl std::convert::From<ring::error::Unspecified> for UnspecifiedError {
 }
 
 impl std::error::Error for UnspecifiedError {}
-
-#[derive(Debug, Clone)]
-pub struct Uuid(u128);
-
-impl Uuid {
-    pub fn random() -> Result<Self, UnspecifiedError> {
-        use rand::SecureRandom as _;
-        let mut buf = [0u8; std::mem::size_of::<u128>()];
-        SYSTEM_RNG.fill(&mut buf)?;
-        Ok(Uuid(u128::from_le_bytes(buf)))
-    }
-}
-
-impl std::fmt::Display for Uuid {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:x}", self.0)
-    }
-}
 
 /// A source of Nonces (numbers that you only use once).
 #[derive(Debug, Clone)]
