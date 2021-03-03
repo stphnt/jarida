@@ -1,3 +1,5 @@
+#![forbid(unused_must_use)]
+
 use anyhow::Context as _;
 
 mod cli;
@@ -133,11 +135,13 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
 pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
     use std::io::{Read, Write};
 
-    let entry = db
-        .get_content(&[id])
-        .context(format!("Could not read entry for {}", id))?;
-    let mut entry = match entry.len() {
-        1 => entry.into_iter().next().unwrap(),
+    let entries = db.get_content(&[id]);
+    let mut entry = match entries.len() {
+        1 => entries
+            .into_iter()
+            .next()
+            .unwrap()
+            .context(format!("Could not read entry for {}", id))?,
         0 => anyhow::bail!("No records for {}", id),
         _ => anyhow::bail!("Multiple records found for {}", id),
     };
@@ -175,12 +179,12 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
 /// Print the metadata and content of every entry in the database.
 pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let mut entries = db
-        .get_metadata_and_content(&*ids)
-        .context("Could not read entries")?;
-    entries.sort_by_key(|entry| entry.data.metadata.created);
+    let entries = db.get_metadata_and_content(&ids[..]);
     for entry in entries {
-        print_metadata_and_content(&entry);
+        match entry {
+            Ok(entry) => print_metadata_and_content(&entry),
+            Err(err) => println!("{}", err),
+        }
         println!();
     }
     Ok(())
@@ -188,11 +192,15 @@ pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
 
 /// Print the metadata and contents of the specified entry.
 pub fn print_entry(db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
-    let entry = db
-        .get_metadata_and_content(&[id])
-        .context("Could not read entry")?;
-    match entry.len() {
-        1 => print_metadata_and_content(&entry[0]),
+    let entries = db.get_metadata_and_content(&[id]);
+    match entries.len() {
+        1 => print_metadata_and_content(
+            &entries
+                .into_iter()
+                .next()
+                .unwrap()
+                .context("Could not read entry")?,
+        ),
         0 => anyhow::bail!("No entry matches id {}", id),
         _ => unreachable!(),
     }
@@ -202,17 +210,19 @@ pub fn print_entry(db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
 /// List identifying metadata for every entry in the database.
 pub fn print_entry_list(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let mut metadata = db.get_metadata(&*ids).context("Could not read metadata")?;
-    metadata.sort_by_key(|meta| meta.data.created);
+    let metadata = db.get_metadata(&*ids);
     for meta in metadata {
-        println!(
-            "[{}] {}",
-            meta.uuid,
-            meta.data
-                .created
-                .with_timezone(&chrono::Local)
-                .format(DATETIME_FORMAT)
-        );
+        match meta {
+            Ok(meta) => println!(
+                "[{}] {}",
+                meta.uuid,
+                meta.data
+                    .created
+                    .with_timezone(&chrono::Local)
+                    .format(DATETIME_FORMAT)
+            ),
+            Err(e) => println!("{}", e),
+        }
     }
     Ok(())
 }

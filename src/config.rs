@@ -110,11 +110,8 @@ impl Config {
     }
 
     pub fn data_store_path(&self) -> PathBuf {
-        let mut path = self
-            .journal_dir
+        self.journal_dir
             .clone()
-            .unwrap_or_else(|| Config::find_config_dir_path().unwrap());
-        path.push("jnl.sqlite");
-        path
+            .unwrap_or_else(|| Config::find_config_dir_path().unwrap())
     }
 }
