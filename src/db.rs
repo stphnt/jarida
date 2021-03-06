@@ -201,7 +201,7 @@ impl<'a> GuardedStore<'a> {
     fn write_content(&mut self, uuid: Uuid, content: String) -> anyhow::Result<()> {
         let mut f = fs::File::create(self.get_entry_content_path(uuid))
             .context(format!("Could not create content file for {}", uuid))?;
-        f.write_all(&content.seal(self.guard)?)?;
+        f.write_all(&content.seal(uuid, self.guard)?)?;
         Ok(())
     }
 
@@ -213,7 +213,7 @@ impl<'a> GuardedStore<'a> {
                 fs::File::open(&path).context(format!("Could not open {}", path.display()))?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)?;
-            Ok(Open::open(buf, self.guard)?)
+            Ok(Open::open(uuid, buf, self.guard)?)
         } else {
             Err(anyhow::anyhow!("Invalid id {}", uuid))
         }
@@ -225,7 +225,7 @@ impl<'a> GuardedStore<'a> {
     fn write_metadata(&mut self, uuid: Uuid, metadata: &Metadata) -> anyhow::Result<()> {
         let mut f = fs::File::create(self.get_entry_metadata_path(uuid))
             .context(format!("Could not create metadata file for {}", uuid))?;
-        f.write_all(&toml::to_string(metadata)?.seal(self.guard)?)?;
+        f.write_all(&toml::to_string(metadata)?.seal(uuid, self.guard)?)?;
         Ok(())
     }
 
@@ -237,7 +237,7 @@ impl<'a> GuardedStore<'a> {
                 fs::File::open(&path).context(format!("Could not open {}", path.display()))?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)?;
-            let buf: Vec<_> = Open::open(buf, self.guard)?;
+            let buf: Vec<_> = Open::open(uuid, buf, self.guard)?;
             let meta: Metadata = toml::from_slice(&buf)?;
             Ok(meta)
         } else {

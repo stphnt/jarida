@@ -1,3 +1,4 @@
+use super::uuid::Uuid;
 use once_cell::sync::Lazy;
 use ring::{self, aead, digest, pbkdf2, rand};
 use std::num::NonZeroU32;
@@ -112,28 +113,34 @@ fn unbound_key(key: &Key) -> Result<aead::UnboundKey, UnspecifiedError> {
     aead::UnboundKey::new(&aead::AES_256_GCM, key).map_err(|_| UnspecifiedError {})
 }
 
-/// Encrypt the plaintext in place using the specified key. The plaintext is
-/// consumed during this process, even if it fails.
-fn seal_in_place(key: &Key, mut plaintext: Vec<u8>) -> Result<(Nonce, Vec<u8>), UnspecifiedError> {
+/// Encrypt the plaintext in place using the specified key and incorporate the
+/// associated data (which is not encrypted). The plaintext is consumed during
+/// this process, even if it fails.
+fn seal_in_place<A: AsRef<[u8]>>(
+    key: &Key,
+    aad: aead::Aad<A>,
+    mut plaintext: Vec<u8>,
+) -> Result<(Nonce, Vec<u8>), UnspecifiedError> {
     use aead::BoundKey as _;
     let nonce = Nonce::random()?;
     let mut key = aead::SealingKey::new(unbound_key(key)?, nonce.clone());
-    key.seal_in_place_append_tag(aead::Aad::empty(), &mut plaintext)
+    key.seal_in_place_append_tag(aad, &mut plaintext)
         .map_err(|_| UnspecifiedError {})?;
     Ok((nonce, plaintext))
 }
 
-/// Decrypt the ciphertext with the given key and nonce in place. The
-/// ciphertext is consumed in this process, even if it fails.
-fn open_in_place(
+/// Decrypt the ciphertext with the given key, associated data, and nonce in
+/// place. The ciphertext is consumed in this process, even if it fails.
+fn open_in_place<A: AsRef<[u8]>>(
     key: &Key,
+    aad: aead::Aad<A>,
     mut nonce: Nonce,
     mut ciphertext: Vec<u8>,
 ) -> Result<Vec<u8>, UnspecifiedError> {
     use aead::BoundKey as _;
     let mut key = aead::OpeningKey::new(unbound_key(key)?, &mut nonce);
     let size = key
-        .open_in_place(aead::Aad::empty(), &mut ciphertext)
+        .open_in_place(aad, &mut ciphertext)
         .map_err(|_| UnspecifiedError {})?
         .len();
     ciphertext.truncate(size);
@@ -176,7 +183,12 @@ impl CredentialGuard {
         // Split the encrypted data from the nonce at the end.
         let nonce_bytes = encrypted_key.split_off(encrypted_key.len() - Nonce::len());
         let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
-        if let Ok(key) = open_in_place(&self.credential_key, nonce, encrypted_key) {
+        if let Ok(key) = open_in_place(
+            &self.credential_key,
+            aead::Aad::empty(),
+            nonce,
+            encrypted_key,
+        ) {
             // Replace the key derived from the user's credentials with the key
             // we just decrypted. All further encryption should be done with
             // this key.
@@ -199,7 +211,8 @@ impl CredentialGuard {
         let mut buf = vec![0u8; KEY_LEN];
         SYSTEM_RNG.fill(&mut buf)?;
         assert!(buf.len() == KEY_LEN);
-        let (nonce, mut encrypted_key) = seal_in_place(&self.credential_key, buf)?;
+        let (nonce, mut encrypted_key) =
+            seal_in_place(&self.credential_key, aead::Aad::empty(), buf)?;
         // Append the nonce to the end
         encrypted_key.extend_from_slice(&nonce.to_le_bytes());
         Ok(encrypted_key)
@@ -215,23 +228,38 @@ pub struct DataGuard {
 }
 
 impl DataGuard {
-    /// Encrypt the plaintext in place using the specified key. The plaintext is
-    /// consumed during this process, even if it fails.
-    pub fn seal_in_place(&mut self, plaintext: Vec<u8>) -> Result<Vec<u8>, UnspecifiedError> {
-        let (nonce, mut encrypted_data) = seal_in_place(&self.key, plaintext)?;
+    /// Encrypt the plaintext associated with the Uuid in place using the
+    /// specified key. The plaintext is consumed during this process, even if it
+    /// fails.
+    pub fn seal_in_place(
+        &mut self,
+        uuid: Uuid,
+        plaintext: Vec<u8>,
+    ) -> Result<Vec<u8>, UnspecifiedError> {
+        let (nonce, mut encrypted_data) =
+            seal_in_place(&self.key, aead::Aad::from(uuid.to_bytes()), plaintext)?;
         // Append the nonce to the end
         encrypted_data.extend_from_slice(&nonce.to_le_bytes()[..]);
         Ok(encrypted_data)
     }
 
-    /// Decrypt the ciphertext with the given key and nonce in place. The
-    /// ciphertext is consumed in this process, even if it fails.
-    pub fn open_in_place(&mut self, mut ciphertext: Vec<u8>) -> Result<Vec<u8>, UnspecifiedError> {
+    /// Decrypt the ciphertext with the given key, associated Uuid, and nonce in
+    /// place. The ciphertext is consumed in this process, even if it fails.
+    pub fn open_in_place(
+        &mut self,
+        uuid: Uuid,
+        mut ciphertext: Vec<u8>,
+    ) -> Result<Vec<u8>, UnspecifiedError> {
         use std::convert::TryInto as _;
         // Split the encrypted data from the nonce at the end.
         let nonce_bytes = ciphertext.split_off(ciphertext.len() - Nonce::len());
         let nonce = Nonce::from_le_bytes(nonce_bytes.try_into().unwrap());
-        open_in_place(&self.key, nonce, ciphertext)
+        open_in_place(
+            &self.key,
+            aead::Aad::from(uuid.to_bytes()),
+            nonce,
+            ciphertext,
+        )
     }
 }
 
@@ -239,8 +267,8 @@ impl DataGuard {
 pub trait Seal: Sized {
     fn into_bytes(self) -> Vec<u8>;
 
-    fn seal(self, guard: &mut DataGuard) -> Result<Vec<u8>, UnspecifiedError> {
-        guard.seal_in_place(self.into_bytes())
+    fn seal(self, uuid: Uuid, guard: &mut DataGuard) -> Result<Vec<u8>, UnspecifiedError> {
+        guard.seal_in_place(uuid, self.into_bytes())
     }
 }
 
@@ -248,8 +276,12 @@ pub trait Seal: Sized {
 pub trait Open: Sized {
     fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError>;
 
-    fn open(ciphertext: Vec<u8>, guard: &mut DataGuard) -> Result<Self, UnspecifiedError> {
-        let plaintext = guard.open_in_place(ciphertext)?;
+    fn open(
+        uuid: Uuid,
+        ciphertext: Vec<u8>,
+        guard: &mut DataGuard,
+    ) -> Result<Self, UnspecifiedError> {
+        let plaintext = guard.open_in_place(uuid, ciphertext)?;
         Open::from_bytes(plaintext)
     }
 }
@@ -307,8 +339,9 @@ mod test {
         let credential_key = derive_key_from_credentials(&salt, username, password);
 
         let data = message.to_vec();
-        let (nonce, ciphertext) = seal_in_place(&credential_key, data).unwrap();
-        let extracted = open_in_place(&credential_key, nonce, ciphertext).unwrap();
+        let (nonce, ciphertext) = seal_in_place(&credential_key, aead::Aad::empty(), data).unwrap();
+        let extracted =
+            open_in_place(&credential_key, aead::Aad::empty(), nonce, ciphertext).unwrap();
         assert_eq!(message, &*extracted);
     }
 }

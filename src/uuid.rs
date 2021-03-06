@@ -12,6 +12,14 @@ impl Uuid {
         SYSTEM_RNG.fill(&mut buf)?;
         Ok(Uuid(u128::from_le_bytes(buf)))
     }
+
+    pub fn to_bytes(&self) -> [u8; 16] {
+        self.0.to_le_bytes()
+    }
+
+    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+        Uuid(u128::from_le_bytes(bytes))
+    }
 }
 
 impl std::str::FromStr for Uuid {
