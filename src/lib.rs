@@ -135,16 +135,8 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
 pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
     use std::io::{Read, Write};
 
-    let entries = db.get_content(&[id]);
-    let mut entry = match entries.len() {
-        1 => entries
-            .into_iter()
-            .next()
-            .unwrap()
-            .context(format!("Could not read entry for {}", id))?,
-        0 => anyhow::bail!("No records for {}", id),
-        _ => anyhow::bail!("Multiple records found for {}", id),
-    };
+    let entry = db.get_content(&[id]).into_iter().next().unwrap();
+    let mut data = entry.data?;
     let modified = chrono::Utc::now();
     {
         let temp = tempfile::NamedTempFile::new_in(
@@ -153,25 +145,25 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
                 .cloned()
                 .unwrap_or_else(std::env::temp_dir),
         )?;
-        temp.as_file().write_all(entry.data.as_bytes())?;
+        temp.as_file().write_all(data.as_bytes())?;
         temp.as_file().sync_data()?;
 
         open_file_in_editor(&cfg, temp.path())?;
 
-        entry.data.clear();
+        data.clear();
         std::fs::File::open(temp.path())
             .context(format!(
                 "Could not open temp file: {}",
                 temp.path().display()
             ))?
-            .read_to_string(&mut entry.data)
+            .read_to_string(&mut data)
             .context(format!(
                 "Failed to read from temp file: {}",
                 temp.path().display()
             ))?;
     }
 
-    db.update(entry.uuid, modified, entry.data)
+    db.update(entry.uuid, modified, data)
         .context("Could not save journal entry")?;
     Ok(())
 }
@@ -179,68 +171,77 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
 /// Print the metadata and content of every entry in the database.
 pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let entries = db.get_metadata_and_content(&ids[..]);
-    for entry in entries {
-        match entry {
-            Ok(entry) => print_metadata_and_content(&entry),
-            Err(err) => println!("{}", err),
-        }
+    let (ok, err): (Vec<_>, Vec<_>) = db
+        .get_metadata_and_content(&ids[..])
+        .into_iter()
+        .partition(|item| item.data.is_ok());
+    for entry in ok {
+        let data = entry.data.unwrap();
+        print_metadata_and_content(entry.uuid, &data);
         println!();
     }
-    Ok(())
+    if let Some(Ided { uuid, data: Err(e) }) = err.into_iter().next() {
+        Err(e).context(format!(
+            "Could not read metadata and/or content for at least one id: {}",
+            uuid
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Print the metadata and contents of the specified entry.
 pub fn print_entry(db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
-    let entries = db.get_metadata_and_content(&[id]);
-    match entries.len() {
-        1 => print_metadata_and_content(
-            &entries
-                .into_iter()
-                .next()
-                .unwrap()
-                .context("Could not read entry")?,
-        ),
-        0 => anyhow::bail!("No entry matches id {}", id),
-        _ => unreachable!(),
-    }
+    let entry = db
+        .get_metadata_and_content(&[id])
+        .into_iter()
+        .next()
+        .unwrap();
+    let data = entry.data?;
+    print_metadata_and_content(entry.uuid, &data);
     Ok(())
 }
 
 /// List identifying metadata for every entry in the database.
 pub fn print_entry_list(db: &mut GuardedStore) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
-    let metadata = db.get_metadata(&*ids);
-    for meta in metadata {
-        match meta {
-            Ok(meta) => println!(
-                "[{}] {}",
-                meta.uuid,
-                meta.data
-                    .created
-                    .with_timezone(&chrono::Local)
-                    .format(DATETIME_FORMAT)
-            ),
-            Err(e) => println!("{}", e),
-        }
+    let (ok, err): (Vec<_>, Vec<_>) = db
+        .get_metadata(&*ids)
+        .into_iter()
+        .partition(|item| item.data.is_ok());
+    for ided_meta in ok {
+        let meta = &ided_meta.data.unwrap();
+        println!(
+            "[{}] {}",
+            ided_meta.uuid,
+            meta.created
+                .with_timezone(&chrono::Local)
+                .format(DATETIME_FORMAT)
+        );
     }
-    Ok(())
+    if let Some(Ided { uuid, data: Err(e) }) = err.into_iter().next() {
+        Err(e).context(format!(
+            "Could not read metadata for at least one id: {}",
+            uuid
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Print the specified entry metadata and content.
-fn print_metadata_and_content(entry: &Ided<MetadataAndContent>) {
-    let modified = entry.data.metadata.created != entry.data.metadata.modified;
+fn print_metadata_and_content(uuid: Uuid, entry: &MetadataAndContent) {
+    let modified = entry.metadata.created != entry.metadata.modified;
     println!(
         // The Uuid is 32 hexadecimal characters so 80 - 3 - 2 - 32 = 43
         r#"{:=<3} {} {:=<43}
 Author:   {}
 Written:  {}"#,
         "",
-        entry.uuid,
+        uuid,
         "",
-        entry.data.metadata.author,
+        entry.metadata.author,
         entry
-            .data
             .metadata
             .created
             .with_timezone(&chrono::Local)
@@ -250,7 +251,6 @@ Written:  {}"#,
         println!(
             "Modified: {}",
             entry
-                .data
                 .metadata
                 .modified
                 .with_timezone(&chrono::Local)
@@ -258,7 +258,7 @@ Written:  {}"#,
         );
     }
     println!("{:=<80}", "");
-    println!("{}", entry.data.content);
+    println!("{}", entry.content);
 }
 
 /// Prompt the user for their credentials, as needed, in order to work with an

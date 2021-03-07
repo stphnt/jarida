@@ -293,29 +293,25 @@ impl<'a> GuardedStore<'a> {
     }
 
     /// Get Metadata about the specified entries
-    pub fn get_metadata(&mut self, uuids: &[Uuid]) -> Vec<anyhow::Result<Ided<Metadata>>> {
+    pub fn get_metadata(&mut self, uuids: &[Uuid]) -> Vec<Ided<anyhow::Result<Metadata>>> {
         uuids
             .iter()
             .cloned()
-            .map(|uuid| {
-                Ok(Ided {
-                    uuid,
-                    data: self.read_metadata(uuid)?,
-                })
+            .map(|uuid| Ided {
+                uuid,
+                data: self.read_metadata(uuid),
             })
             .collect()
     }
 
     /// Get the content of the journal entries with the specified uuids
-    pub fn get_content(&mut self, uuids: &[Uuid]) -> Vec<anyhow::Result<Ided<String>>> {
+    pub fn get_content(&mut self, uuids: &[Uuid]) -> Vec<Ided<anyhow::Result<String>>> {
         uuids
             .iter()
             .cloned()
-            .map(|uuid| {
-                Ok(Ided {
-                    uuid,
-                    data: self.read_content(uuid)?,
-                })
+            .map(|uuid| Ided {
+                uuid,
+                data: self.read_content(uuid),
             })
             .collect()
     }
@@ -324,18 +320,19 @@ impl<'a> GuardedStore<'a> {
     pub fn get_metadata_and_content(
         &mut self,
         uuids: &[Uuid],
-    ) -> Vec<anyhow::Result<Ided<MetadataAndContent>>> {
+    ) -> Vec<Ided<anyhow::Result<MetadataAndContent>>> {
         uuids
             .iter()
             .cloned()
-            .map(|uuid| {
-                Ok(Ided {
-                    uuid,
-                    data: MetadataAndContent {
-                        metadata: self.read_metadata(uuid)?,
-                        content: self.read_content(uuid)?,
+            .map(|uuid| Ided {
+                uuid,
+                data: match self.read_metadata(uuid) {
+                    Ok(metadata) => match self.read_content(uuid) {
+                        Ok(content) => Ok(MetadataAndContent { metadata, content }),
+                        Err(e) => Err(e),
                     },
-                })
+                    Err(e) => Err(e),
+                },
             })
             .collect()
     }
