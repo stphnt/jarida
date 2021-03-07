@@ -269,8 +269,6 @@ impl<'a> GuardedStore<'a> {
         modified: chrono::DateTime<chrono::Utc>,
         entry: String,
     ) -> anyhow::Result<()> {
-        let mut result = self.get_metadata(&[uuid]).into_iter().next().unwrap()?;
-        result.data.modified = modified;
         let mut meta = self.read_metadata(uuid)?;
         meta.modified = modified;
         self.write_metadata(uuid, &meta)?;
