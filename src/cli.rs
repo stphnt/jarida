@@ -1,6 +1,6 @@
 use super::{
-    edit_entry, new_entry, print_all_entries, print_entry, print_entry_list, Config, GuardedStore,
-    Uuid,
+    edit_entry, new_entry, print_all_entries, print_entry, print_entry_list, Config, Format,
+    GuardedStore, Uuid,
 };
 
 #[derive(Debug, structopt::StructOpt)]
@@ -14,6 +14,9 @@ pub enum Args {
     Show {
         /// The ID of the entry to show
         id: Option<Uuid>,
+        /// Whether to print the entry in TOML format instead of the default
+        #[structopt(long, short)]
+        toml: bool,
     },
     /// Edit an existing journal entry
     Edit {
@@ -27,11 +30,15 @@ impl Args {
         match self {
             Args::New => new_entry(&cfg, &mut db),
             Args::List => print_entry_list(&mut db),
-            Args::Show { id } => {
+            Args::Show { id, toml } => {
                 if let Some(id) = id {
-                    print_entry(&mut db, *id)
+                    print_entry(
+                        &mut db,
+                        *id,
+                        if *toml { Format::Toml } else { Format::Default },
+                    )
                 } else {
-                    print_all_entries(&mut db)
+                    print_all_entries(&mut db, if *toml { Format::Toml } else { Format::Default })
                 }
             }
             Args::Edit { id } => edit_entry(&cfg, &mut db, *id),

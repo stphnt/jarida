@@ -14,6 +14,13 @@ pub use db::*;
 pub use security::*;
 pub use uuid::Uuid;
 
+/// The formats for printing out entries
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Format {
+    Default,
+    Toml,
+}
+
 /// The formatting string for all date-time
 const DATETIME_FORMAT: &str = "%a %v %R";
 
@@ -169,16 +176,27 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
 }
 
 /// Print the metadata and content of every entry in the database.
-pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
+pub fn print_all_entries(db: &mut GuardedStore, format: Format) -> anyhow::Result<()> {
     let ids = db.get_uuids().context("Could not read entry ids")?;
     let (ok, err): (Vec<_>, Vec<_>) = db
         .get_metadata_and_content(&ids[..])
         .into_iter()
         .partition(|item| item.data.is_ok());
-    for entry in ok {
-        let data = entry.data.unwrap();
-        print_metadata_and_content(entry.uuid, &data);
-        println!();
+    match format {
+        Format::Default => {
+            for entry in ok {
+                let data = entry.data.unwrap();
+                print_metadata_and_content(entry.uuid, &data);
+                println!();
+            }
+        }
+        Format::Toml => {
+            let mut map = std::collections::HashMap::new();
+            for entry in ok {
+                map.insert(entry.uuid, entry.data.unwrap());
+            }
+            println!("{}", toml::to_string_pretty(&map)?);
+        }
     }
     if let Some(Ided { uuid, data: Err(e) }) = err.into_iter().next() {
         Err(e).context(format!(
@@ -191,14 +209,21 @@ pub fn print_all_entries(db: &mut GuardedStore) -> anyhow::Result<()> {
 }
 
 /// Print the metadata and contents of the specified entry.
-pub fn print_entry(db: &mut GuardedStore, id: Uuid) -> anyhow::Result<()> {
+pub fn print_entry(db: &mut GuardedStore, id: Uuid, format: Format) -> anyhow::Result<()> {
     let entry = db
         .get_metadata_and_content(&[id])
         .into_iter()
         .next()
         .unwrap();
     let data = entry.data?;
-    print_metadata_and_content(entry.uuid, &data);
+    match format {
+        Format::Default => print_metadata_and_content(entry.uuid, &data),
+        Format::Toml => {
+            let mut map = std::collections::HashMap::new();
+            map.insert(entry.uuid, data);
+            println!("{}", toml::to_string_pretty(&map)?);
+        }
+    };
     Ok(())
 }
 

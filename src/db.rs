@@ -8,7 +8,7 @@ use crate::security::{generate_db_salt, DataGuard, Open, Seal};
 use crate::uuid::Uuid;
 
 /// A record that has an ID
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Ided<T> {
     pub uuid: Uuid,
     pub data: T,
@@ -35,7 +35,9 @@ impl Metadata {
 }
 
 /// A record containing the journal entry's metadata and content
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MetadataAndContent {
+    #[serde(flatten)]
     pub metadata: Metadata,
     pub content: String,
 }
