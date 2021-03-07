@@ -1,7 +1,8 @@
 use crate::security::{UnspecifiedError, SYSTEM_RNG};
 
 /// A universal identifer
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub struct Uuid(u128);
 
 impl Uuid {
@@ -33,5 +34,19 @@ impl std::str::FromStr for Uuid {
 impl std::fmt::Display for Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:x}", self.0)
+    }
+}
+
+impl From<Uuid> for String {
+    fn from(uuid: Uuid) -> String {
+        format!("{}", uuid)
+    }
+}
+
+impl std::convert::TryFrom<String> for Uuid {
+    type Error = <Uuid as std::str::FromStr>::Err;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
     }
 }
