@@ -1,6 +1,6 @@
 use structopt::StructOpt as _;
 
-use journal::{get_and_validate_credentials, Args, Config, Store};
+use jarida::{get_and_validate_credentials, Args, Config, Store};
 
 fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
