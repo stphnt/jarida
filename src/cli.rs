@@ -1,7 +1,8 @@
 use super::{
-    edit_entry, new_entry, print_all_entries, print_entry, print_entry_list, Config, Format,
+    edit_entry, init, new_entry, print_all_entries, print_entry, print_entry_list, Config, Format,
     GuardedStore, Uuid,
 };
+use std::path::PathBuf;
 
 #[derive(Debug, structopt::StructOpt)]
 #[structopt(name = "journal", rename_all = "kebab-case")]
@@ -27,6 +28,11 @@ pub enum Args {
     ///
     /// This should only be needed for maintainence reasons.
     Index,
+    /// Initialize the system
+    Init {
+        /// The directory to use for program data. If omitted, a directory will be created in the user's home directory.
+        dir: Option<PathBuf>,
+    },
 }
 
 impl Args {
@@ -47,6 +53,7 @@ impl Args {
             }
             Args::Edit { id } => edit_entry(&cfg, &mut db, *id),
             Args::Index => db.index(),
+            Args::Init { dir } => init(dir.clone()),
         }
     }
 }

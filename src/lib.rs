@@ -285,6 +285,28 @@ Written:  {}"#,
     println!("{}", entry.content);
 }
 
+/// Try to initialize the specified directory. If `dir` is None, the user's home
+/// directory is assumed. If config directory already exists, an error is
+/// returned.
+pub fn init(dir: Option<std::path::PathBuf>) -> anyhow::Result<()> {
+    use std::io::Write as _;
+
+    let mut path = dir
+        .ok_or_else(|| anyhow::anyhow!("")) // This error is never used, but must match that of get_user_config_dir_path.
+        .map(|mut path| {
+            path.push(Config::DIR_NAME);
+            path
+        })
+        .or_else(|_| Config::get_user_config_dir_path())?;
+    if path.exists() {
+        anyhow::bail!("{} is already initialized", path.display());
+    }
+    std::fs::create_dir(&path)?;
+    path.push(Config::FILE_NAME);
+    std::fs::File::create(path)?.write_all(Config::template().as_bytes())?;
+    Ok(())
+}
+
 /// Prompt the user for their credentials, as needed, in order to work with an
 /// encrypted database.
 ///
