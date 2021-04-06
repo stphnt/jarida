@@ -5,6 +5,10 @@ authors = ["Stephen Hunt <stphnhnt.git@gmail.com>"]
 edition = "2018"
 description = "A minimalist, encrypted journaling tool"
 homepage = "https://gitlab.com/stphn/jarida"
+repository = "https://gitlab.com/stphn/jarida"
+license = "GPL-3.0-or-later"
+keywords = ["journal"]
+categories = ["command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
