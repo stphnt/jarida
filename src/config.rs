@@ -98,17 +98,6 @@ impl Config {
         }
     }
 
-    pub fn ensure_password(&mut self) -> anyhow::Result<()> {
-        if self.password.is_none() {
-            log::trace!("No password in config, Prompting user for password");
-            self.password = Some(
-                rpassword::prompt_password_stdout("Password: ")
-                    .context("Could not read password".to_string())?,
-            );
-        }
-        Ok(())
-    }
-
     pub fn data_store_path(&self) -> PathBuf {
         self.journal_dir
             .clone()
