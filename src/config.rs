@@ -89,12 +89,12 @@ impl Config {
                 path
             })
             .ok_or_else(|| anyhow::anyhow!("Could not find user's home directory"))?;
-        if !path.exists() {
+        if path.exists() {
+            Ok(path)
+        } else {
             Err(anyhow::anyhow!(
                 "Could not find config file in user's home directory"
             ))
-        } else {
-            Ok(path)
         }
     }
 

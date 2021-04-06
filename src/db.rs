@@ -90,11 +90,6 @@ impl Store {
 
     /// Open the journal stored at the specified path.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Store> {
-        let path = path.as_ref();
-        let store = Store {
-            root: path.to_path_buf(),
-        };
-
         fn ignore_already_existing(error: std::io::Error) -> std::io::Result<()> {
             if error.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
@@ -102,6 +97,11 @@ impl Store {
                 Err(error)
             }
         }
+
+        let path = path.as_ref();
+        let store = Store {
+            root: path.to_path_buf(),
+        };
         let security_path = path.join(Self::SECURITY_DIR_NAME);
         let entries_path = path.join(Self::ENTRIES_DIR_NAME);
         fs::create_dir_all(path).or_else(ignore_already_existing)?;

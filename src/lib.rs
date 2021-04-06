@@ -30,13 +30,13 @@ fn retry<T, S: FnMut() -> anyhow::Result<T>>(max: usize, mut func: S) -> anyhow:
     for i in 0..max {
         if result.is_ok() {
             break;
-        } else {
-            if i == max - 1 {
-                return result;
-            }
-            println!("Oops! Try again.");
-            result = func();
         }
+
+        if i == max - 1 {
+            return result;
+        }
+        println!("Oops! Try again.");
+        result = func();
     }
     result
 }
@@ -88,7 +88,9 @@ pub fn open_file_in_editor<P: AsRef<std::path::Path>>(cfg: &Config, path: P) -> 
             cfg.editor.display(),
             path.display()
         ))?;
-    if !status.success() {
+    if status.success() {
+        Ok(())
+    } else {
         Err(anyhow::anyhow!(
             "{} exited with code {}",
             cfg.editor.display(),
@@ -98,8 +100,6 @@ pub fn open_file_in_editor<P: AsRef<std::path::Path>>(cfg: &Config, path: P) -> 
                 .unwrap_or_else(|| "NONE".to_string())
         )
         .context(format!("Failed to open/edit {}", path.display())))
-    } else {
-        Ok(())
     }
 }
 
@@ -131,10 +131,9 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
 
     if entry.is_empty() || entry.chars().all(|c| c.is_whitespace()) {
         anyhow::bail!("Entry was empty/blank. No journal entry saved.");
-    } else {
-        db.insert(&metadata, entry)
-            .context("Could not save journal entry")?;
     }
+    db.insert(&metadata, entry)
+        .context("Could not save journal entry")?;
     Ok(())
 }
 
