@@ -23,6 +23,10 @@ pub enum Args {
         /// The ID of the entry to edit
         id: Uuid,
     },
+    /// Index all journal entries
+    ///
+    /// This should only be needed for maintainence reasons.
+    Index,
 }
 
 impl Args {
@@ -42,6 +46,7 @@ impl Args {
                 }
             }
             Args::Edit { id } => edit_entry(&cfg, &mut db, *id),
+            Args::Index => db.index(),
         }
     }
 }

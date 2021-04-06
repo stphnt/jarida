@@ -56,6 +56,11 @@ impl Store {
     const KEY_FILE_NAME: &'static str = "key";
     const INDEX_FILE_NAME: &'static str = "index";
 
+    /// Get the directory containing all the entry data.
+    fn get_entries_dir_path(&self) -> PathBuf {
+        self.root.join(Self::ENTRIES_DIR_NAME)
+    }
+
     /// Get the file path for the specified entry
     fn get_entry_path(&self, id: Uuid) -> PathBuf {
         let mut path = self.root.join(Self::ENTRIES_DIR_NAME);
@@ -337,5 +342,43 @@ impl<'a> GuardedStore<'a> {
                 },
             })
             .collect()
+    }
+
+    /// Recreate the index file based on the contexts of the "entries" directory
+    pub fn index(&mut self) -> anyhow::Result<()> {
+        // The "entries" directory should contain a folder for each journal
+        // entry, the name of which is the UUID.
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(self.store.get_entries_dir_path())? {
+            let entry = entry.context("Failed to read an entry directory")?;
+            let file_type = entry.file_type().context(format!(
+                "Could not get filetype of {}",
+                entry.path().display()
+            ))?;
+            if file_type.is_dir() {
+                let file_name = entry.file_name().to_string_lossy().into_owned();
+                let uuid: Uuid = file_name
+                    .parse()
+                    .context(format!("Invalid entries subdirectory: {}", file_name))?;
+
+                let ided_metadata = self.get_metadata(&[uuid]);
+                for record in ided_metadata {
+                    let metadata = record.data?;
+                    entries.push(Ided {
+                        uuid,
+                        data: metadata.created,
+                    });
+                }
+            }
+        }
+        entries.sort_unstable_by_key(|entry| entry.data);
+
+        // Overwrite the index file
+        let mut f = fs::File::create(self.store.get_index_path())?;
+        for entry in entries {
+            writeln!(f, "{}", entry.uuid)?;
+        }
+
+        Ok(())
     }
 }
