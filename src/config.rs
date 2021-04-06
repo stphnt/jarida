@@ -38,7 +38,7 @@ impl std::str::FromStr for Config {
 }
 
 impl Config {
-    const DIR_NAME: &'static str = ".jnl";
+    const DIR_NAME: &'static str = ".jarida";
 
     /// Find the config data
     pub fn find() -> anyhow::Result<Config> {
@@ -63,7 +63,7 @@ impl Config {
     }
 
     fn find_parent_config_dir_path() -> anyhow::Result<PathBuf> {
-        // Walk up the directory tree until we find a .jnl directory
+        // Walk up the directory tree until we find a .jarida directory
         let mut dir = std::env::current_dir()?;
         loop {
             for entry in fs::read_dir(&dir)? {
