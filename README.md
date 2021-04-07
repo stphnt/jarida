@@ -8,7 +8,7 @@ Data is encrypted using [ring](https://crates.io/crates/ring)'s AES 256 GCM impl
 
 ## Installation
 
-`jarida` is written in Rust so you'll need the Rust compiler. You can get it from [here](https://www.rust-lang.org/learn/get-started).
+`jarida` is written in Rust so you'll need the Rust compiler. You can get it [here](https://www.rust-lang.org/learn/get-started).
 
 1. Run `cargo install --path . --git <url-to-this-repo>` to install `jarida` on your system
 1. Run `jarida init` to setup some configuration data in your home directory.
@@ -23,4 +23,4 @@ Data is encrypted using [ring](https://crates.io/crates/ring)'s AES 256 GCM impl
 See `jarida --help` or `jarida <subcommand> --help` for more details.
 
 `jarida` looks for a `.jarida` folder containing configuration information first in parent folders and then in the user's home directory.
-This allows multiple journals can be setup and used independently on the same system, similar to how you can use multiple repositories independently with `git`.
+This allows multiple journals to be set up and used independently on the same system, similar to how you can use multiple repositories independently with `git`.
