@@ -10,7 +10,7 @@ Data is encrypted using [ring](https://crates.io/crates/ring)'s AES 256 GCM impl
 
 `jarida` is written in Rust so you'll need the Rust compiler. You can get it [here](https://www.rust-lang.org/learn/get-started).
 
-1. Run `cargo install --path . --git <url-to-this-repo>` to install `jarida` on your system
+1. Run `cargo install jarida` to install `jarida` on your system
 1. Run `jarida init` to setup some configuration data in your home directory.
 1. Open the newly created `$HOME/.jarida/config.toml` file and update it as necessary. At the minimum you will need to specify the text editor you would like to use.
 
