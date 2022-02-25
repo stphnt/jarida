@@ -308,19 +308,21 @@ impl Open for String {
     }
 }
 
-impl Seal for chrono::DateTime<chrono::Utc> {
+impl Seal for time::OffsetDateTime {
     fn into_bytes(self) -> Vec<u8> {
-        self.to_rfc3339().into_bytes()
+        self.format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+            .into_bytes()
     }
 }
 
-impl Open for chrono::DateTime<chrono::Utc> {
+impl Open for time::OffsetDateTime {
     fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError> {
-        Ok(
-            chrono::DateTime::parse_from_rfc3339(std::str::from_utf8(&bytes).unwrap())
-                .unwrap()
-                .with_timezone(&chrono::Utc),
+        Ok(time::OffsetDateTime::parse(
+            std::str::from_utf8(&bytes).unwrap(),
+            &time::format_description::well_known::Rfc3339,
         )
+        .unwrap())
     }
 }
 

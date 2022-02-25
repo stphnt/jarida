@@ -14,7 +14,6 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
 dirs-next = "2.0"
 fs-err = "2.5"
 log = "0.4"
@@ -25,4 +24,5 @@ rpassword = "5.0"
 serde = { version = "1", features = ["derive"] }
 structopt = "0.3"
 tempfile = "3.2"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing", "serde", "serde-well-known"] }
 toml = "0.5"

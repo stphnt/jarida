@@ -17,15 +17,17 @@ pub struct Ided<T> {
 /// A record containing journal entry metadata
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Metadata {
-    pub created: chrono::DateTime<chrono::Utc>,
-    pub modified: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: time::OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub modified: time::OffsetDateTime,
     pub author: String,
 }
 
 impl Metadata {
     /// Create new metadata for journal entry by the specified user.
     pub fn new(username: &str) -> Self {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         Metadata {
             created: now,
             modified: now,
@@ -273,7 +275,7 @@ impl<'a> GuardedStore<'a> {
     pub fn update(
         &mut self,
         uuid: Uuid,
-        modified: chrono::DateTime<chrono::Utc>,
+        modified: time::OffsetDateTime,
         entry: String,
     ) -> anyhow::Result<()> {
         let mut meta = self.read_metadata(uuid)?;
