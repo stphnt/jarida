@@ -2,7 +2,7 @@
 name = "jarida"
 version = "0.1.1"
 authors = ["Stephen Hunt <stphnhnt.git@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "A minimalist, encrypted journaling tool"
 homepage = "https://gitlab.com/stphn/jarida"
 repository = "https://gitlab.com/stphn/jarida"
