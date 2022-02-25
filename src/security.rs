@@ -193,7 +193,6 @@ impl CredentialGuard {
             // we just decrypted. All further encryption should be done with
             // this key.
             Ok(DataGuard {
-                guard: self,
                 key: key.try_into().unwrap(),
             })
         } else {
@@ -223,7 +222,6 @@ impl CredentialGuard {
 /// created from a CredentialGuard who's username and password have been verified.
 #[derive(Debug)]
 pub struct DataGuard {
-    guard: CredentialGuard,
     key: Key,
 }
 
