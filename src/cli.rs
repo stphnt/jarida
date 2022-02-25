@@ -36,22 +36,18 @@ pub enum Args {
 }
 
 impl Args {
-    pub fn run(&self, cfg: &Config, mut db: &mut GuardedStore) -> anyhow::Result<()> {
+    pub fn run(&self, cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
         match self {
-            Args::New => new_entry(&cfg, &mut db),
-            Args::List => print_entry_list(&mut db),
+            Args::New => new_entry(cfg, db),
+            Args::List => print_entry_list(db),
             Args::Show { id, toml } => {
                 if let Some(id) = id {
-                    print_entry(
-                        &mut db,
-                        *id,
-                        if *toml { Format::Toml } else { Format::Default },
-                    )
+                    print_entry(db, *id, if *toml { Format::Toml } else { Format::Default })
                 } else {
-                    print_all_entries(&mut db, if *toml { Format::Toml } else { Format::Default })
+                    print_all_entries(db, if *toml { Format::Toml } else { Format::Default })
                 }
             }
-            Args::Edit { id } => edit_entry(&cfg, &mut db, *id),
+            Args::Edit { id } => edit_entry(cfg, db, *id),
             Args::Index => db.index(),
             Args::Init { dir } => init(dir.clone()),
         }

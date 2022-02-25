@@ -63,7 +63,7 @@ impl aead::NonceSequence for Nonce {
     fn advance(&mut self) -> Result<aead::Nonce, ring::error::Unspecified> {
         use std::convert::TryInto as _;
         let nonce = aead::Nonce::assume_unique_for_key(
-            (&self.to_le_bytes()[..12])
+            self.to_le_bytes()[..12]
                 .try_into()
                 .map_err(|_| ring::error::Unspecified)?,
         );

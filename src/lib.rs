@@ -116,7 +116,7 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
                 .cloned()
                 .unwrap_or_else(std::env::temp_dir),
         )?;
-        open_file_in_editor(&cfg, temp.path())?;
+        open_file_in_editor(cfg, temp.path())?;
         std::fs::File::open(temp.path())
             .context(format!(
                 "Could not open temp file: {}",
@@ -154,7 +154,7 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
         temp.as_file().write_all(data.as_bytes())?;
         temp.as_file().sync_data()?;
 
-        open_file_in_editor(&cfg, temp.path())?;
+        open_file_in_editor(cfg, temp.path())?;
 
         data.clear();
         std::fs::File::open(temp.path())
@@ -320,7 +320,7 @@ pub fn get_and_validate_credentials(
 
     // Get encryption data from the database.
     let salt = db.get_salt()?;
-    let mut encrypted_key = db.get_key()?.unwrap_or_else(Vec::new);
+    let mut encrypted_key = db.get_key()?.unwrap_or_default();
 
     // Get and confirm the user's name and password
 
