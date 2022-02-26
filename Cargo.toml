@@ -2,7 +2,7 @@
 name = "jarida"
 version = "0.1.1"
 authors = ["Stephen Hunt <stphnhnt.git@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "A minimalist, encrypted journaling tool"
 homepage = "https://gitlab.com/stphn/jarida"
 repository = "https://gitlab.com/stphn/jarida"
@@ -14,15 +14,15 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "3.1", features = ["derive"] }
 dirs-next = "2.0"
-fs-err = "2.5"
+fs-err = "2.7"
 log = "0.4"
-once_cell = "1.5"
+once_cell = "1.9"
 pretty_env_logger = "0.4"
-ring = "0.16"
+ring = "0.16.20"
 rpassword = "5.0"
-serde = { version = "1", features = ["derive"] }
-structopt = "0.3"
-tempfile = "3.2"
+serde = { version = "1.0", features = ["derive"] }
+tempfile = "3.3"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing", "serde", "serde-well-known"] }
 toml = "0.5"

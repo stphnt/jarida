@@ -63,7 +63,7 @@ impl aead::NonceSequence for Nonce {
     fn advance(&mut self) -> Result<aead::Nonce, ring::error::Unspecified> {
         use std::convert::TryInto as _;
         let nonce = aead::Nonce::assume_unique_for_key(
-            (&self.to_le_bytes()[..12])
+            self.to_le_bytes()[..12]
                 .try_into()
                 .map_err(|_| ring::error::Unspecified)?,
         );
@@ -193,7 +193,6 @@ impl CredentialGuard {
             // we just decrypted. All further encryption should be done with
             // this key.
             Ok(DataGuard {
-                guard: self,
                 key: key.try_into().unwrap(),
             })
         } else {
@@ -223,7 +222,6 @@ impl CredentialGuard {
 /// created from a CredentialGuard who's username and password have been verified.
 #[derive(Debug)]
 pub struct DataGuard {
-    guard: CredentialGuard,
     key: Key,
 }
 
@@ -310,19 +308,21 @@ impl Open for String {
     }
 }
 
-impl Seal for chrono::DateTime<chrono::Utc> {
+impl Seal for time::OffsetDateTime {
     fn into_bytes(self) -> Vec<u8> {
-        self.to_rfc3339().into_bytes()
+        self.format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+            .into_bytes()
     }
 }
 
-impl Open for chrono::DateTime<chrono::Utc> {
+impl Open for time::OffsetDateTime {
     fn from_bytes(bytes: Vec<u8>) -> Result<Self, UnspecifiedError> {
-        Ok(
-            chrono::DateTime::parse_from_rfc3339(std::str::from_utf8(&bytes).unwrap())
-                .unwrap()
-                .with_timezone(&chrono::Utc),
+        Ok(time::OffsetDateTime::parse(
+            std::str::from_utf8(&bytes).unwrap(),
+            &time::format_description::well_known::Rfc3339,
         )
+        .unwrap())
     }
 }
 

@@ -21,8 +21,10 @@ pub enum Format {
     Toml,
 }
 
-/// The formatting string for all date-time
-const DATETIME_FORMAT: &str = "%a %v %R";
+/// The formatting string for all date-time (Sun  8-Jul-2001 00:34)
+const DATETIME_FORMAT: &[::time::format_description::FormatItem<'_>] = time::macros::format_description!(
+    "[weekday repr:short] [day padding:space]-[month repr:short]-[year] [hour repr:24]:[minute]"
+);
 
 /// Retry the specified function up to the specified number of times times until is succeeds.
 fn retry<T, S: FnMut() -> anyhow::Result<T>>(max: usize, mut func: S) -> anyhow::Result<T> {
@@ -116,7 +118,7 @@ pub fn new_entry(cfg: &Config, db: &mut GuardedStore) -> anyhow::Result<()> {
                 .cloned()
                 .unwrap_or_else(std::env::temp_dir),
         )?;
-        open_file_in_editor(&cfg, temp.path())?;
+        open_file_in_editor(cfg, temp.path())?;
         std::fs::File::open(temp.path())
             .context(format!(
                 "Could not open temp file: {}",
@@ -143,7 +145,7 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
 
     let entry = db.get_content(&[id]).into_iter().next().unwrap();
     let mut data = entry.data?;
-    let modified = chrono::Utc::now();
+    let modified = time::OffsetDateTime::now_utc();
     {
         let temp = tempfile::NamedTempFile::new_in(
             cfg.temp_dir
@@ -154,7 +156,7 @@ pub fn edit_entry(cfg: &Config, db: &mut GuardedStore, id: Uuid) -> anyhow::Resu
         temp.as_file().write_all(data.as_bytes())?;
         temp.as_file().sync_data()?;
 
-        open_file_in_editor(&cfg, temp.path())?;
+        open_file_in_editor(cfg, temp.path())?;
 
         data.clear();
         std::fs::File::open(temp.path())
@@ -239,8 +241,9 @@ pub fn print_entry_list(db: &mut GuardedStore) -> anyhow::Result<()> {
             "[{}] {}",
             ided_meta.uuid,
             meta.created
-                .with_timezone(&chrono::Local)
+                .to_offset(time::UtcOffset::current_local_offset().unwrap())
                 .format(DATETIME_FORMAT)
+                .unwrap()
         );
     }
     if let Some(Ided { uuid, data: Err(e) }) = err.into_iter().next() {
@@ -268,8 +271,9 @@ Written:  {}"#,
         entry
             .metadata
             .created
-            .with_timezone(&chrono::Local)
-            .format(DATETIME_FORMAT),
+            .to_offset(time::UtcOffset::current_local_offset().unwrap())
+            .format(DATETIME_FORMAT)
+            .unwrap(),
     );
     if modified {
         println!(
@@ -277,8 +281,9 @@ Written:  {}"#,
             entry
                 .metadata
                 .modified
-                .with_timezone(&chrono::Local)
+                .to_offset(time::UtcOffset::current_local_offset().unwrap())
                 .format(DATETIME_FORMAT)
+                .unwrap()
         );
     }
     println!("{:=<80}", "");
@@ -320,7 +325,7 @@ pub fn get_and_validate_credentials(
 
     // Get encryption data from the database.
     let salt = db.get_salt()?;
-    let mut encrypted_key = db.get_key()?.unwrap_or_else(Vec::new);
+    let mut encrypted_key = db.get_key()?.unwrap_or_default();
 
     // Get and confirm the user's name and password
 
