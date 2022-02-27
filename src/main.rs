@@ -1,6 +1,18 @@
+#![forbid(unused_must_use)]
 use clap::Parser as _;
 
-use jarida::{get_and_validate_credentials, Args, Config, Store};
+mod callback;
+mod cli;
+mod common;
+mod config;
+mod db;
+mod security;
+mod uuid;
+
+use cli::Args;
+use common::get_and_validate_credentials;
+use config::Config;
+use db::Store;
 
 fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();

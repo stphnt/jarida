@@ -1,6 +1,9 @@
 use super::{
-    edit_entry, init, new_entry, print_all_entries, print_entry, print_entry_list, Config, Format,
-    GuardedStore, Uuid,
+    callback::{edit_entry, init, new_entry, print_all_entries, print_entry, print_entry_list},
+    common::Format,
+    config::Config,
+    db::GuardedStore,
+    uuid::Uuid,
 };
 use std::path::PathBuf;
 
