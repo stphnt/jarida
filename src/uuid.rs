@@ -14,7 +14,7 @@ impl Uuid {
         Ok(Uuid(u128::from_le_bytes(buf)))
     }
 
-    pub fn to_bytes(&self) -> [u8; 16] {
+    pub fn to_bytes(self) -> [u8; 16] {
         self.0.to_le_bytes()
     }
 
