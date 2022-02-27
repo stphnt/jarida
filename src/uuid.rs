@@ -1,6 +1,6 @@
 use crate::security::{UnspecifiedError, SYSTEM_RNG};
 
-/// A universal identifer
+/// A universal identifier.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct Uuid(u128);

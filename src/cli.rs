@@ -32,7 +32,7 @@ pub enum Action {
     },
     /// Index all journal entries
     ///
-    /// This should only be needed for maintainence reasons.
+    /// This should only be needed for maintenance reasons.
     Index,
     /// Initialize the system
     Init {

@@ -111,7 +111,7 @@ impl Config {
         }
     }
 
-    /// Get the expected path to the config direcotry in the user's home directory.
+    /// Get the expected path to the config directory in the user's home directory.
     ///
     /// The file may not exist. If the user's home directory could not be found
     /// an error is returned.
